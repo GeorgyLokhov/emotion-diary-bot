@@ -18,7 +18,7 @@ export default async function handler(req, res) {
       try {
         console.log('Forwarding to Google Apps Script...');
         
-        const response = await fetch('ЗАМЕНИ_НА_ТВОЮ_ССЫЛКУ_APPS_SCRIPT/exec', {
+        const response = await fetch('https://script.google.com/macros/s/AKfycbyTpE9kTgih8-AgnQSyjDZOa9Ub7jA5fbICZ1xCNsS_4EMDA9uvevC0bg8Z8naGDqBM5w/exec', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
