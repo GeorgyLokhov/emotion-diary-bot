@@ -250,7 +250,13 @@ async function saveEmotionEntry(chatId, emotion, intensity, reason) {
 
 // Функции для работы с Telegram API
 async function sendMessage(chatId, text, keyboard = null) {
-  const url = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`;
+  // Попробуем разные серверы Telegram API
+  const urls = [
+    `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
+    `https://149.154.167.220/bot${process.env.TELEGRAM_TOKEN}/sendMessage`,
+    `https://149.154.167.197/bot${process.env.TELEGRAM_TOKEN}/sendMessage`
+  ];
+  
   const payload = {
     chat_id: chatId,
     text,
@@ -264,15 +270,15 @@ async function sendMessage(chatId, text, keyboard = null) {
   console.log(`=== SENDING MESSAGE ===`);
   console.log(`Chat: ${chatId}, Text length: ${text.length}`);
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (const url of urls) {
+    console.log(`Trying URL: ${url}`);
+    
     try {
-      console.log(`--- Attempt ${attempt} ---`);
-      
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
-        console.log(`Attempt ${attempt}: TIMEOUT`);
+        console.log(`TIMEOUT for ${url}`);
         controller.abort();
-      }, 10000);
+      }, 5000); // Уменьшили таймаут до 5 секунд
 
       const response = await fetch(url, {
         method: 'POST',
@@ -284,21 +290,18 @@ async function sendMessage(chatId, text, keyboard = null) {
       clearTimeout(timeoutId);
 
       if (response.ok) {
-        console.log(`Attempt ${attempt}: SUCCESS!`);
+        console.log(`SUCCESS with ${url}!`);
         return;
       } else {
-        console.log(`Attempt ${attempt}: HTTP ${response.status}`);
+        console.log(`HTTP ${response.status} from ${url}`);
       }
 
     } catch (error) {
-      console.error(`Attempt ${attempt} failed:`, error.message);
-      if (attempt < 3) {
-        await new Promise(resolve => setTimeout(resolve, attempt * 1000));
-      }
+      console.error(`Failed with ${url}:`, error.message);
     }
   }
   
-  console.error(`=== ALL ATTEMPTS FAILED ===`);
+  console.error(`=== ALL URLS FAILED ===`);
 }
 
 async function editMessage(chatId, messageId, text, keyboard = null) {
