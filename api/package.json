@@ -1,0 +1,11 @@
+{
+  "name": "telegram-emotion-bot",
+  "version": "1.0.0",
+  "main": "api/webhook.js",
+  "dependencies": {
+    "googleapis": "^126.0.1"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
