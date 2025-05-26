@@ -61,7 +61,7 @@ async function writeToSheet(emotion, intensity, reason) {
     // Проверяем заголовки
     const headerCheck = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: 'Лист1!A1:D1',
+      range: 'A1:D1',
     });
     
     if (!headerCheck.data.values || headerCheck.data.values[0][0] !== 'Дата и время') {
