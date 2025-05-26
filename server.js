@@ -20,20 +20,38 @@ const EMOTIONS = {
 // Временное хранилище пользователей
 const userSessions = new Map();
 
-// Инициализация Google Sheets
+// Замени инициализацию Google Auth на:
 let sheetsClient;
 try {
-  const auth = new google.auth.GoogleAuth({
-    credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
-    scopes: ['https://www.googleapis.com/auth/spreadsheets']
-  });
-
+  let auth;
+  
+  // Пробуем Secret File сначала
+  try {
+    auth = new google.auth.GoogleAuth({
+      keyFile: '/etc/secrets/google-credentials.json',
+      scopes: ['https://www.googleapis.com/auth/spreadsheets']
+    });
+    console.log('✅ Using Secret File credentials');
+  } catch (error) {
+    // Fallback на Environment Variable
+    if (process.env.GOOGLE_CREDENTIALS) {
+      const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+      auth = new google.auth.GoogleAuth({
+        credentials: credentials,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets']
+      });
+      console.log('✅ Using Environment Variable credentials');
+    } else {
+      throw new Error('No Google credentials found');
+    }
+  }
   
   sheetsClient = google.sheets({ version: 'v4', auth });
   console.log('✅ Google Sheets API initialized');
 } catch (error) {
   console.error('❌ Google Sheets initialization failed:', error);
 }
+
 
 // Функция записи в Google Sheets
 async function writeToSheet(emotion, intensity, reason) {
