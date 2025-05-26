@@ -10,18 +10,32 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const PORT = process.env.PORT || 3000;
 
-// Эмоции с эмодзи
+// Эмоции с эмодзи (для отображения в боте)
 const EMOTIONS = {
   'радость': '😊',
-  'дизмораль': '😢', 
-  'раздражение': '😠',
+  'грусть': '😢', 
+  'злость': '😠',
   'страх': '😰',
   'отвращение': '🤢',
   'интерес': '🤔',
-  'безразличие': '😶',
+  'безразличие': '😐',
   'приятную_усталость': '😌',
   'тревогу': '😟',
   'вину': '😔'
+};
+
+// Преобразование эмоций в именительный падеж с заглавной буквы
+const EMOTION_NOMINATIVE = {
+  'радость': 'Радость',
+  'грусть': 'Грусть',
+  'злость': 'Злость',
+  'страх': 'Страх',
+  'отвращение': 'Отвращение',
+  'интерес': 'Интерес',
+  'безразличие': 'Безразличие',
+  'приятную_усталость': 'Приятная усталость',
+  'тревогу': 'Тревога',
+  'вину': 'Вина'
 };
 
 // Временное хранилище пользовательских сессий
@@ -64,8 +78,7 @@ async function initializeGoogleSheets() {
   }
 }
 
-// Функция записи в Google Sheets (исправленная версия без названия листа)
-// Функция записи в Google Sheets (обновленная версия с разделением даты и времени)
+// Функция записи в Google Sheets (с именительным падежом)
 async function writeToSheet(emotion, intensity, reason) {
   try {
     // Разделяем дату и время на отдельные переменные
@@ -83,38 +96,41 @@ async function writeToSheet(emotion, intensity, reason) {
     // Разделяем на дату и время
     const [dateStr, timeStr] = currentDateTime.split(', ');
     
-    console.log(`Saving data: Date=${dateStr}, Time=${timeStr}, Emotion=${emotion}`);
+    // Преобразуем эмоцию в именительный падеж с заглавной буквы
+    const emotionNominative = EMOTION_NOMINATIVE[emotion] || emotion;
     
-    // Проверяем заголовки (теперь 5 колонок вместо 4)
+    console.log(`Saving data: Date=${dateStr}, Time=${timeStr}, Emotion=${emotionNominative}`);
+    
+    // Проверяем заголовки (5 колонок)
     const headerCheck = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: 'A1:E1', // Изменили с D1 на E1
+      range: 'A1:E1',
     });
     
-    // Создаем заголовки если их нет (теперь с отдельными колонками для даты и времени)
+    // Создаем заголовки если их нет
     if (!headerCheck.data.values || !headerCheck.data.values[0] || headerCheck.data.values[0][0] !== 'Дата') {
       await sheetsClient.spreadsheets.values.update({
         spreadsheetId: GOOGLE_SHEET_ID,
-        range: 'A1:E1', // Изменили с D1 на E1
+        range: 'A1:E1',
         valueInputOption: 'RAW',
         resource: {
-          values: [['Дата', 'Время', 'Эмоция', 'Интенсивность', 'Причина']] // Добавили отдельную колонку "Время"
+          values: [['Дата', 'Время', 'Эмоция', 'Интенсивность', 'Причина']]
         }
       });
       console.log('✅ Headers created with separate Date and Time columns');
     }
     
-    // Добавляем новую запись (теперь 5 значений вместо 4)
+    // Добавляем новую запись с эмоцией в именительном падеже
     await sheetsClient.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: 'A:E', // Изменили с A:D на A:E
+      range: 'A:E',
       valueInputOption: 'RAW',
       resource: {
-        values: [[dateStr, timeStr, emotion, intensity, reason]] // Дата и время в разных ячейках
+        values: [[dateStr, timeStr, emotionNominative, intensity, reason]]
       }
     });
     
-    console.log(`✅ Data written to Google Sheets: ${dateStr} ${timeStr} - ${emotion} (${intensity}) - ${reason}`);
+    console.log(`✅ Data written to Google Sheets: ${dateStr} ${timeStr} - ${emotionNominative} (${intensity}) - ${reason}`);
     return true;
     
   } catch (error) {
@@ -374,7 +390,7 @@ async function askForReason(chatId, messageId, emotion, intensity) {
   await editMessage(chatId, messageId, text);
 }
 
-// Сохранение записи эмоции
+// Сохранение записи эмоции (обновленная версия)
 async function saveEmotionEntry(chatId, reason) {
   const session = userSessions.get(chatId);
   if (!session || !session.emotion || session.intensity === undefined) {
@@ -386,11 +402,12 @@ async function saveEmotionEntry(chatId, reason) {
   
   console.log(`Saving emotion: ${emotion} (${intensity}) - ${reason}`);
   
-  // Записываем в Google Sheets
-  const success = await writeToSheet(emotion.replace('_', ' '), intensity, reason);
+  // Записываем в Google Sheets (эмоция автоматически преобразуется в именительный падеж)
+  const success = await writeToSheet(emotion, intensity, reason);
   
   if (success) {
     const emoji = EMOTIONS[emotion];
+    const emotionNominative = EMOTION_NOMINATIVE[emotion] || emotion;
     let level, levelEmoji;
     if (intensity <= 3) {
       level = 'слабая';
@@ -403,19 +420,20 @@ async function saveEmotionEntry(chatId, reason) {
       levelEmoji = '🔴';
     }
 
+    // Обновленная клавиатура с кнопкой просмотра таблицы
     const keyboard = {
-      inline_keyboard: [[
-        { text: '📝 Добавить еще одну запись', callback_data: 'add_entry' }
-      ]]
+      inline_keyboard: [
+        [{ text: '📝 Добавить еще одну запись', callback_data: 'add_entry' }],
+        [{ text: '📊 Посмотреть гугл таблицу', url: `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/edit` }]
+      ]
     };
 
+    // Обновленный текст без "Отличная работа..."
     const text = `✅ <b>Запись сохранена!</b>
 
-🎭 Эмоция: ${emoji} ${emotion.replace('_', ' ')}
+🎭 Эмоция: ${emoji} ${emotionNominative}
 📊 Интенсивность: ${levelEmoji} ${level} (${intensity}/10)
-💭 Причина: ${reason}
-
-Отличная работа! Регулярное отслеживание эмоций поможет тебе лучше понять себя.`;
+💭 Причина: ${reason}`;
 
     await sendMessage(chatId, text, keyboard);
     userSessions.delete(chatId);
