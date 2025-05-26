@@ -65,9 +65,12 @@ async function initializeGoogleSheets() {
 }
 
 // Функция записи в Google Sheets (исправленная версия без названия листа)
+// Функция записи в Google Sheets (обновленная версия с разделением даты и времени)
 async function writeToSheet(emotion, intensity, reason) {
   try {
-    const currentTime = new Date().toLocaleString('ru-RU', { 
+    // Разделяем дату и время на отдельные переменные
+    const now = new Date();
+    const currentDateTime = now.toLocaleString('ru-RU', { 
       timeZone: 'Europe/Moscow',
       year: 'numeric',
       month: '2-digit',
@@ -77,36 +80,41 @@ async function writeToSheet(emotion, intensity, reason) {
       second: '2-digit'
     });
     
-    // Проверяем заголовки (без названия листа - обращается к первому листу)
+    // Разделяем на дату и время
+    const [dateStr, timeStr] = currentDateTime.split(', ');
+    
+    console.log(`Saving data: Date=${dateStr}, Time=${timeStr}, Emotion=${emotion}`);
+    
+    // Проверяем заголовки (теперь 5 колонок вместо 4)
     const headerCheck = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: 'A1:D1',
+      range: 'A1:E1', // Изменили с D1 на E1
     });
     
-    // Создаем заголовки если их нет
-    if (!headerCheck.data.values || !headerCheck.data.values[0] || headerCheck.data.values[0][0] !== 'Дата и время') {
+    // Создаем заголовки если их нет (теперь с отдельными колонками для даты и времени)
+    if (!headerCheck.data.values || !headerCheck.data.values[0] || headerCheck.data.values[0][0] !== 'Дата') {
       await sheetsClient.spreadsheets.values.update({
         spreadsheetId: GOOGLE_SHEET_ID,
-        range: 'A1:D1',
+        range: 'A1:E1', // Изменили с D1 на E1
         valueInputOption: 'RAW',
         resource: {
-          values: [['Дата и время', 'Эмоция', 'Интенсивность', 'Причина']]
+          values: [['Дата', 'Время', 'Эмоция', 'Интенсивность', 'Причина']] // Добавили отдельную колонку "Время"
         }
       });
-      console.log('✅ Headers created');
+      console.log('✅ Headers created with separate Date and Time columns');
     }
     
-    // Добавляем новую запись
+    // Добавляем новую запись (теперь 5 значений вместо 4)
     await sheetsClient.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: 'A:D',
+      range: 'A:E', // Изменили с A:D на A:E
       valueInputOption: 'RAW',
       resource: {
-        values: [[currentTime, emotion, intensity, reason]]
+        values: [[dateStr, timeStr, emotion, intensity, reason]] // Дата и время в разных ячейках
       }
     });
     
-    console.log(`✅ Data written to Google Sheets: ${emotion} (${intensity}) - ${reason}`);
+    console.log(`✅ Data written to Google Sheets: ${dateStr} ${timeStr} - ${emotion} (${intensity}) - ${reason}`);
     return true;
     
   } catch (error) {
