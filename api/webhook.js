@@ -16,11 +16,14 @@ export default async function handler(req, res) {
       // МГНОВЕННО возвращаем 200 OK для Telegram
       res.status(200).json({ status: 'ok' });
       
+      // НОВАЯ ССЫЛКА НА GOOGLE APPS SCRIPT!
+      const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxj6t8L2uQd2ss7hNGTM0f-0YniAoJcuilU4d-gp1HfJ58qlHE61NTAfQ_JEBaQdkQ/exec';
+      
       // Отправляем данные в Google Apps Script для обработки
       if (update.message) {
-        await processMessageViaGoogleScript(update.message);
+        await processMessageViaGoogleScript(update.message, GOOGLE_SCRIPT_URL);
       } else if (update.callback_query) {
-        await processCallbackViaGoogleScript(update.callback_query);
+        await processCallbackViaGoogleScript(update.callback_query, GOOGLE_SCRIPT_URL);
       }
       
       return;
@@ -34,7 +37,7 @@ export default async function handler(req, res) {
   }
 }
 
-async function processMessageViaGoogleScript(message) {
+async function processMessageViaGoogleScript(message, scriptUrl) {
   try {
     const data = {
       action: 'handle_message',
@@ -46,11 +49,17 @@ async function processMessageViaGoogleScript(message) {
     
     console.log('Sending to Google Script:', JSON.stringify(data));
     
-    const response = await fetch('https://script.google.com/macros/s/AKfycbzB2ZQuWkBNTYwK7aiLwhmWdMfS-XQUQMXBJ2B36PJPzSmb7LdWzHZRF2PKZ_8HNS7M/exec', {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    
+    const response = await fetch(scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
     
     const result = await response.text();
     console.log('Google Script response:', result);
@@ -60,7 +69,7 @@ async function processMessageViaGoogleScript(message) {
   }
 }
 
-async function processCallbackViaGoogleScript(callbackQuery) {
+async function processCallbackViaGoogleScript(callbackQuery, scriptUrl) {
   try {
     const data = {
       action: 'handle_callback',
@@ -74,11 +83,17 @@ async function processCallbackViaGoogleScript(callbackQuery) {
     
     console.log('Sending callback to Google Script:', JSON.stringify(data));
     
-    const response = await fetch('https://script.google.com/macros/s/AKfycbzB2ZQuWkBNTYwK7aiLwhmWdMfS-XQUQMXBJ2B36PJPzSmb7LdWzHZRF2PKZ_8HNS7M/exec', {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    
+    const response = await fetch(scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
     
     const result = await response.text();
     console.log('Google Script callback response:', result);
