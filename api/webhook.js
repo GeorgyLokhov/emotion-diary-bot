@@ -1,11 +1,11 @@
 // Эмоции с эмодзи
 const EMOTIONS = {
-  'радость': '😊', 'грусть': '😢', 'злость': '😠', 'страх': '😰',
+  'радость': '😊', 'грусть': '😢', 'раздражение': '😠', 'страх': '😰',
   'отвращение': '🤢', 'интерес': '🤔', 'безразличие': '😐',
   'приятную_усталость': '😌', 'тревогу': '😟', 'вину': '😔'
 };
 
-// Временное хранилище сессий (в продакшене лучше Redis)
+// Временное хранилище сессий
 const userSessions = new Map();
 
 export default async function handler(req, res) {
@@ -47,7 +47,11 @@ async function handleMessage(message) {
   const chatId = message.chat.id;
   const text = message.text || '';
 
+  console.log(`=== HANDLING MESSAGE ===`);
+  console.log(`Chat ID: ${chatId}, Text: "${text}"`);
+
   if (text === '/start') {
+    console.log('Processing /start command...');
     await sendStartMessage(chatId);
   } else {
     // Проверяем, ждем ли причину эмоции
@@ -65,6 +69,9 @@ async function handleCallback(callbackQuery) {
   const chatId = callbackQuery.message.chat.id;
   const messageId = callbackQuery.message.message_id;
   const data = callbackQuery.data;
+
+  console.log(`=== HANDLING CALLBACK ===`);
+  console.log(`Chat ID: ${chatId}, Data: ${data}`);
 
   // Подтверждаем callback
   await answerCallbackQuery(callbackQuery.id);
@@ -86,6 +93,8 @@ async function handleCallback(callbackQuery) {
 
 // Отправка стартового сообщения
 async function sendStartMessage(chatId) {
+  console.log(`=== SENDING START MESSAGE ===`);
+  
   const keyboard = {
     inline_keyboard: [[
       { text: '📝 Внести запись', callback_data: 'add_entry' }
@@ -186,7 +195,7 @@ async function askForReason(chatId, messageId, emotion, intensity) {
   await editMessage(chatId, messageId, text);
 }
 
-// Сохранение через Google Apps Script (ТОЛЬКО ДЛЯ SHEETS!)
+// Сохранение через Google Apps Script
 async function saveEmotionEntry(chatId, emotion, intensity, reason) {
   try {
     // Отправляем в Google Sheets
@@ -198,8 +207,8 @@ async function saveEmotionEntry(chatId, emotion, intensity, reason) {
       timestamp: new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })
     };
 
-    // НЕ ждем ответа - сохраняем в фоне
-    fetch('https://script.google.com/macros/s/AKfycbyTpE9kTgih8-AgnQSyjDZOa9Ub7jA5fbICZ1xCNsS_4EMDA9uvevC0bg8Z8naGDqBM5w/exec', {
+    // НЕ ждем ответа - сохраняем в фоне  
+    fetch('ТВОЯ_ССЫЛКА_APPS_SCRIPT_СЮДА/exec', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sheetData)
@@ -239,7 +248,7 @@ async function saveEmotionEntry(chatId, emotion, intensity, reason) {
   }
 }
 
-// Функции для работы с Telegram API (с retry логикой)
+// Функции для работы с Telegram API
 async function sendMessage(chatId, text, keyboard = null) {
   const url = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}/sendMessage`;
   const payload = {
@@ -252,10 +261,18 @@ async function sendMessage(chatId, text, keyboard = null) {
     payload.reply_markup = JSON.stringify(keyboard);
   }
 
+  console.log(`=== SENDING MESSAGE ===`);
+  console.log(`Chat: ${chatId}, Text length: ${text.length}`);
+
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
+      console.log(`--- Attempt ${attempt} ---`);
+      
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => {
+        console.log(`Attempt ${attempt}: TIMEOUT`);
+        controller.abort();
+      }, 10000);
 
       const response = await fetch(url, {
         method: 'POST',
@@ -267,8 +284,10 @@ async function sendMessage(chatId, text, keyboard = null) {
       clearTimeout(timeoutId);
 
       if (response.ok) {
-        console.log(`Message sent successfully on attempt ${attempt}`);
+        console.log(`Attempt ${attempt}: SUCCESS!`);
         return;
+      } else {
+        console.log(`Attempt ${attempt}: HTTP ${response.status}`);
       }
 
     } catch (error) {
@@ -278,6 +297,8 @@ async function sendMessage(chatId, text, keyboard = null) {
       }
     }
   }
+  
+  console.error(`=== ALL ATTEMPTS FAILED ===`);
 }
 
 async function editMessage(chatId, messageId, text, keyboard = null) {
