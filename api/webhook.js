@@ -2,7 +2,6 @@ export default async function handler(req, res) {
   try {
     console.log('=== WEBHOOK HANDLER START ===');
     console.log('Method:', req.method);
-    console.log('Headers:', JSON.stringify(req.headers));
     
     if (req.method === 'GET') {
       return res.status(200).json({ 
@@ -18,12 +17,12 @@ export default async function handler(req, res) {
       // МГНОВЕННО возвращаем 200 OK для Telegram
       res.status(200).json({ status: 'ok' });
       
-      // Отправляем в Google Apps Script с детальным логированием
+      // Отправляем в Google Apps Script как FORM DATA (НЕ JSON)
       const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyY6vWoHozIuKRWOI0zKak9WoOvnqgEwWUuu-qGFz7Ij8nTNgbGgsGn0YOBlR-biQs_aA/exec';
       
       const payload = {
         action: 'handle_telegram_update',
-        update: update,
+        update: JSON.stringify(update),
         timestamp: new Date().toISOString(),
         source: 'vercel'
       };
@@ -31,7 +30,15 @@ export default async function handler(req, res) {
       try {
         console.log('=== FORWARDING TO APPS SCRIPT ===');
         console.log('URL:', APPS_SCRIPT_URL);
-        console.log('Payload:', JSON.stringify(payload));
+        
+        // Создаем URLSearchParams для form data
+        const formData = new URLSearchParams();
+        Object.keys(payload).forEach(key => {
+          formData.append(key, payload[key]);
+        });
+        
+        console.log('Form data:', formData.toString());
+        console.log('Making POST request as form data...');
         
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
@@ -39,21 +46,19 @@ export default async function handler(req, res) {
           controller.abort();
         }, 25000);
         
-        console.log('Making POST request to Apps Script...');
         const response = await fetch(APPS_SCRIPT_URL, {
           method: 'POST',
           headers: { 
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
             'User-Agent': 'Vercel-Telegram-Bot/1.0'
           },
-          body: JSON.stringify(payload),
+          body: formData.toString(),
           signal: controller.signal
         });
         
         clearTimeout(timeoutId);
         
         console.log('Apps Script response status:', response.status);
-        console.log('Apps Script response headers:', JSON.stringify([...response.headers.entries()]));
         
         const result = await response.text();
         console.log('Apps Script response body:', result);
@@ -68,7 +73,6 @@ export default async function handler(req, res) {
         console.error('=== FORWARD ERROR ===');
         console.error('Error type:', error.name);
         console.error('Error message:', error.message);
-        console.error('Error stack:', error.stack);
       }
       
       console.log('=== WEBHOOK HANDLER END ===');
