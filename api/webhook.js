@@ -208,7 +208,7 @@ async function saveEmotionEntry(chatId, emotion, intensity, reason) {
     };
 
     // НЕ ждем ответа - сохраняем в фоне  
-    fetch('ТВОЯ_ССЫЛКА_APPS_SCRIPT_СЮДА/exec', {
+    fetch('https://script.google.com/macros/s/AKfycbyTpE9kTgih8-AgnQSyjDZOa9Ub7jA5fbICZ1xCNsS_4EMDA9uvevC0bg8Z8naGDqBM5w/exec', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sheetData)
