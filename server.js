@@ -24,9 +24,10 @@ const userSessions = new Map();
 let sheetsClient;
 try {
   const auth = new google.auth.GoogleAuth({
-    keyFile: './google-credentials.json',
+    credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
     scopes: ['https://www.googleapis.com/auth/spreadsheets']
   });
+
   
   sheetsClient = google.sheets({ version: 'v4', auth });
   console.log('✅ Google Sheets API initialized');
