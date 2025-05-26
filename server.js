@@ -10,32 +10,18 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const PORT = process.env.PORT || 3000;
 
-// Эмоции с эмодзи (для отображения в боте)
+// Обновленные эмоции с эмодзи
 const EMOTIONS = {
   'радость': '😊',
-  'грусть': '😢', 
-  'злость': '😠',
-  'страх': '😰',
-  'отвращение': '🤢',
   'интерес': '🤔',
-  'безразличие': '😐',
-  'приятную_усталость': '😌',
+  'глубокое удовлетворение': '😌',
+  'уверенность': '😎',
+  'дизмораль/подавленность': '😞',
+  'отвращение': '🤢',
+  'апатия/безразличие': '😶',
   'тревогу': '😟',
-  'вину': '😔'
-};
-
-// Преобразование эмоций в именительный падеж с заглавной буквы
-const EMOTION_NOMINATIVE = {
-  'радость': 'Радость',
-  'грусть': 'Грусть',
-  'злость': 'Злость',
-  'страх': 'Страх',
-  'отвращение': 'Отвращение',
-  'интерес': 'Интерес',
-  'безразличие': 'Безразличие',
-  'приятную_усталость': 'Приятная усталость',
-  'тревогу': 'Тревога',
-  'вину': 'Вина'
+  'стыд/вину': '😔',
+  'раздражение': '😠'
 };
 
 // Временное хранилище пользовательских сессий
@@ -78,7 +64,7 @@ async function initializeGoogleSheets() {
   }
 }
 
-// Функция записи в Google Sheets (с именительным падежом)
+// Функция записи в Google Sheets (с обновленными заголовками)
 async function writeToSheet(emotion, intensity, reason) {
   try {
     // Разделяем дату и время на отдельные переменные
@@ -90,16 +76,12 @@ async function writeToSheet(emotion, intensity, reason) {
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit'
     });
     
     // Разделяем на дату и время
     const [dateStr, timeStr] = currentDateTime.split(', ');
     
-    // Преобразуем эмоцию в именительный падеж с заглавной буквы
-    const emotionNominative = EMOTION_NOMINATIVE[emotion] || emotion;
-    
-    console.log(`Saving data: Date=${dateStr}, Time=${timeStr}, Emotion=${emotionNominative}`);
+    console.log(`Saving data: Date=${dateStr}, Time=${timeStr}, Emotion=${emotion}`);
     
     // Проверяем заголовки (5 колонок)
     const headerCheck = await sheetsClient.spreadsheets.values.get({
@@ -107,30 +89,30 @@ async function writeToSheet(emotion, intensity, reason) {
       range: 'A1:E1',
     });
     
-    // Создаем заголовки если их нет
+    // Создаем заголовки если их нет (обновленные заголовки)
     if (!headerCheck.data.values || !headerCheck.data.values[0] || headerCheck.data.values[0][0] !== 'Дата') {
       await sheetsClient.spreadsheets.values.update({
         spreadsheetId: GOOGLE_SHEET_ID,
         range: 'A1:E1',
         valueInputOption: 'RAW',
         resource: {
-          values: [['Дата', 'Время', 'Эмоция', 'Интенсивность', 'Причина']]
+          values: [['Дата', 'Время', 'Что я чувствую?', 'Интенсивность', 'Почему я это чувствую?']]
         }
       });
-      console.log('✅ Headers created with separate Date and Time columns');
+      console.log('✅ Headers created with updated column names');
     }
     
-    // Добавляем новую запись с эмоцией в именительном падеже
+    // Добавляем новую запись (эмоция как есть, без преобразований)
     await sheetsClient.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
       range: 'A:E',
       valueInputOption: 'RAW',
       resource: {
-        values: [[dateStr, timeStr, emotionNominative, intensity, reason]]
+        values: [[dateStr, timeStr, emotion, intensity, reason]]
       }
     });
     
-    console.log(`✅ Data written to Google Sheets: ${dateStr} ${timeStr} - ${emotionNominative} (${intensity}) - ${reason}`);
+    console.log(`✅ Data written to Google Sheets: ${dateStr} ${timeStr} - ${emotion} (${intensity}) - ${reason}`);
     return true;
     
   } catch (error) {
@@ -317,7 +299,7 @@ async function showEmotionKeyboard(chatId, messageId) {
       const emotion = emotions[i + j];
       const emoji = EMOTIONS[emotion];
       row.push({
-        text: `${emoji} ${emotion.charAt(0).toUpperCase() + emotion.slice(1).replace('_', ' ')}`,
+        text: `${emoji} ${emotion.charAt(0).toUpperCase() + emotion.slice(1)}`,
         callback_data: `emotion_${emotion}`
       });
     }
@@ -358,7 +340,7 @@ async function showIntensityKeyboard(chatId, messageId, emotion) {
   };
 
   const emoji = EMOTIONS[emotion];
-  const text = `📊 <b>Интенсивность чувства: ${emoji} ${emotion.replace('_', ' ')}</b>
+  const text = `📊 <b>Интенсивность чувства: ${emoji} ${emotion}</b>
 
 Насколько сильно ты это ощущаешь?
 Выбери число от 1 до 10:`;
@@ -390,7 +372,7 @@ async function askForReason(chatId, messageId, emotion, intensity) {
   await editMessage(chatId, messageId, text);
 }
 
-// Сохранение записи эмоции (обновленная версия)
+// Сохранение записи эмоции (упрощенная версия без преобразований)
 async function saveEmotionEntry(chatId, reason) {
   const session = userSessions.get(chatId);
   if (!session || !session.emotion || session.intensity === undefined) {
@@ -402,12 +384,11 @@ async function saveEmotionEntry(chatId, reason) {
   
   console.log(`Saving emotion: ${emotion} (${intensity}) - ${reason}`);
   
-  // Записываем в Google Sheets (эмоция автоматически преобразуется в именительный падеж)
+  // Записываем в Google Sheets (эмоция как есть, без преобразований)
   const success = await writeToSheet(emotion, intensity, reason);
   
   if (success) {
     const emoji = EMOTIONS[emotion];
-    const emotionNominative = EMOTION_NOMINATIVE[emotion] || emotion;
     let level, levelEmoji;
     if (intensity <= 3) {
       level = 'слабая';
@@ -420,7 +401,7 @@ async function saveEmotionEntry(chatId, reason) {
       levelEmoji = '🔴';
     }
 
-    // Обновленная клавиатура с кнопкой просмотра таблицы
+    // Клавиатура с кнопкой просмотра таблицы
     const keyboard = {
       inline_keyboard: [
         [{ text: '📝 Добавить еще одну запись', callback_data: 'add_entry' }],
@@ -428,10 +409,9 @@ async function saveEmotionEntry(chatId, reason) {
       ]
     };
 
-    // Обновленный текст без "Отличная работа..."
     const text = `✅ <b>Запись сохранена!</b>
 
-🎭 Эмоция: ${emoji} ${emotionNominative}
+🎭 Эмоция: ${emoji} ${emotion}
 📊 Интенсивность: ${levelEmoji} ${level} (${intensity}/10)
 💭 Причина: ${reason}`;
 
