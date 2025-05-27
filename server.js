@@ -528,9 +528,9 @@ async function saveEmotionEntry(chatId, reason) {
 
     const text = `✅ <b>Запись сохранена!</b>
 
-🎭 Эмоция: ${emoji} ${emotion}
+🎭 Чувство: ${emoji} ${emotion}
 📊 Интенсивность: ${levelEmoji} ${level} (${intensity}/10)
-💭 Причина: ${reason}`;
+💭 Комментарий: ${reason}`;
 
     await sendMessage(chatId, text, keyboard);
     userSessions.delete(chatId);
