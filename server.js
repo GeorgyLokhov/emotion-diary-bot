@@ -87,8 +87,50 @@ async function initializeGoogleSheets() {
   }
 }
 
-// Упрощенная функция записи без объединения ячеек (во избежание ошибок)
-async function writeToSheetSimple(selectedEmotions, reason) {
+// Функция для поиска групп записей, которые должны быть объединены
+function findMergeGroups(data) {
+  const groups = [];
+  let currentGroup = null;
+  
+  for (let i = 1; i < data.length; i++) { // Пропускаем заголовок
+    const row = data[i];
+    if (!row || row.length < 5) continue;
+    
+    const [date, time, emotion, intensity, comment] = row;
+    
+    // Если у нас есть дата и время, это начало новой группы
+    if (date && time) {
+      // Завершаем предыдущую группу
+      if (currentGroup && currentGroup.rows.length > 1) {
+        groups.push(currentGroup);
+      }
+      
+      // Начинаем новую группу
+      currentGroup = {
+        startRow: i,
+        endRow: i,
+        rows: [i],
+        date: date,
+        time: time,
+        comment: comment
+      };
+    } else if (currentGroup && !date && !time && emotion) {
+      // Это продолжение текущей группы
+      currentGroup.endRow = i;
+      currentGroup.rows.push(i);
+    }
+  }
+  
+  // Не забываем последнюю группу
+  if (currentGroup && currentGroup.rows.length > 1) {
+    groups.push(currentGroup);
+  }
+  
+  return groups;
+}
+
+// Функция записи в Google Sheets с умным объединением ячеек
+async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
   try {
     const now = new Date();
     const currentDateTime = now.toLocaleString('ru-RU', { 
@@ -130,8 +172,8 @@ async function writeToSheetSimple(selectedEmotions, reason) {
         // Первая строка содержит дату, время, эмоцию, интенсивность и комментарий
         values.push([dateStr, timeStr, emotionData.emotion, emotionData.intensity, reason]);
       } else {
-        // Остальные строки содержат дату, время, эмоцию, интенсивность и пустой комментарий
-        values.push([dateStr, timeStr, emotionData.emotion, emotionData.intensity, '']);
+        // Остальные строки содержат только эмоцию и интенсивность
+        values.push(['', '', emotionData.emotion, emotionData.intensity, '']);
       }
     });
 
@@ -144,6 +186,11 @@ async function writeToSheetSimple(selectedEmotions, reason) {
         values: values
       }
     });
+
+    // Теперь занимаемся объединением ячеек
+    if (selectedEmotions.length > 1) {
+      await smartMergeCells();
+    }
     
     console.log(`✅ Data written to Google Sheets: ${selectedEmotions.length} emotions`);
     return true;
@@ -151,6 +198,140 @@ async function writeToSheetSimple(selectedEmotions, reason) {
   } catch (error) {
     console.error('❌ Error writing to Google Sheets:', error);
     return false;
+  }
+}
+
+// Умное объединение ячеек
+async function smartMergeCells() {
+  try {
+    // Получаем все данные из таблицы
+    const allData = await sheetsClient.spreadsheets.values.get({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: 'A:E',
+    });
+    
+    if (!allData.data.values) {
+      console.log('No data to merge');
+      return;
+    }
+    
+    const data = allData.data.values;
+    
+    // Находим группы записей для объединения
+    const mergeGroups = findMergeGroups(data);
+    
+    if (mergeGroups.length === 0) {
+      console.log('No groups found for merging');
+      return;
+    }
+    
+    console.log(`Found ${mergeGroups.length} groups for merging`);
+    
+    // Сначала разъединяем все ячейки в колонках A, B, E
+    try {
+      await sheetsClient.spreadsheets.batchUpdate({
+        spreadsheetId: GOOGLE_SHEET_ID,
+        resource: {
+          requests: [
+            {
+              unmergeCells: {
+                range: {
+                  sheetId: 0,
+                  startColumnIndex: 0,
+                  endColumnIndex: 1
+                }
+              }
+            },
+            {
+              unmergeCells: {
+                range: {
+                  sheetId: 0,
+                  startColumnIndex: 1,
+                  endColumnIndex: 2
+                }
+              }
+            },
+            {
+              unmergeCells: {
+                range: {
+                  sheetId: 0,
+                  startColumnIndex: 4,
+                  endColumnIndex: 5
+                }
+              }
+            }
+          ]
+        }
+      });
+      console.log('✅ All cells unmerged');
+    } catch (unmergeError) {
+      console.log('ℹ️ No cells to unmerge (normal)');
+    }
+
+    // Теперь объединяем ячейки для каждой группы
+    const mergeRequests = [];
+    
+    mergeGroups.forEach(group => {
+      const startRowIndex = group.startRow - 1; // API использует 0-based индексы
+      const endRowIndex = group.endRow; // endRow exclusive
+      
+      // Объединяем дату (колонка A)
+      mergeRequests.push({
+        mergeCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: startRowIndex,
+            endRowIndex: endRowIndex,
+            startColumnIndex: 0,
+            endColumnIndex: 1
+          },
+          mergeType: 'MERGE_ALL'
+        }
+      });
+
+      // Объединяем время (колонка B)
+      mergeRequests.push({
+        mergeCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: startRowIndex,
+            endRowIndex: endRowIndex,
+            startColumnIndex: 1,
+            endColumnIndex: 2
+          },
+          mergeType: 'MERGE_ALL'
+        }
+      });
+
+      // Объединяем комментарий (колонка E), только если он не пустой
+      if (group.comment && group.comment.trim()) {
+        mergeRequests.push({
+          mergeCells: {
+            range: {
+              sheetId: 0,
+              startRowIndex: startRowIndex,
+              endRowIndex: endRowIndex,
+              startColumnIndex: 4,
+              endColumnIndex: 5
+            },
+            mergeType: 'MERGE_ALL'
+          }
+        });
+      }
+    });
+
+    if (mergeRequests.length > 0) {
+      await sheetsClient.spreadsheets.batchUpdate({
+        spreadsheetId: GOOGLE_SHEET_ID,
+        resource: {
+          requests: mergeRequests
+        }
+      });
+      console.log(`✅ Successfully merged ${mergeRequests.length} cell ranges`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Smart merge error:', error);
   }
 }
 
@@ -600,7 +781,7 @@ async function saveEmotionEntry(chatId, reason) {
 
   console.log(`Saving emotions: ${session.selectedEmotions.length} emotions - ${reason}`);
   
-  const success = await writeToSheetSimple(session.selectedEmotions, reason);
+  const success = await writeToSheetWithSmartMerge(session.selectedEmotions, reason);
   
   if (success) {
     const keyboard = {
