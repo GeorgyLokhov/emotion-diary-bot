@@ -421,22 +421,22 @@ async function showIntensityKeyboard(chatId, messageId, emotion) {
     inline_keyboard: [
       [{ text: 'Слабая (1-3)', callback_data: 'ignore' }],
       [
-        { text: '1️⃣ 1', callback_data: 'intensity_1' },
-        { text: '2️⃣ 2', callback_data: 'intensity_2' },
-        { text: '3️⃣ 3', callback_data: 'intensity_3' }
+        { text: '1️⃣', callback_data: 'intensity_1' },
+        { text: '2️⃣', callback_data: 'intensity_2' },
+        { text: '3️⃣', callback_data: 'intensity_3' }
       ],
       [{ text: 'Средняя (4-7)', callback_data: 'ignore' }],
       [
-        { text: '4️⃣ 4', callback_data: 'intensity_4' },
-        { text: '5️⃣ 5', callback_data: 'intensity_5' },
-        { text: '6️⃣ 6', callback_data: 'intensity_6' },
-        { text: '7️⃣ 7', callback_data: 'intensity_7' }
+        { text: '4️⃣', callback_data: 'intensity_4' },
+        { text: '5️⃣', callback_data: 'intensity_5' },
+        { text: '6️⃣', callback_data: 'intensity_6' },
+        { text: '7️⃣', callback_data: 'intensity_7' }
       ],
       [{ text: 'Сильная (8-10)', callback_data: 'ignore' }],
       [
-        { text: '8️⃣ 8', callback_data: 'intensity_8' },
-        { text: '9️⃣ 9', callback_data: 'intensity_9' },
-        { text: '🔟 10', callback_data: 'intensity_10' }
+        { text: '8️⃣', callback_data: 'intensity_8' },
+        { text: '9️⃣', callback_data: 'intensity_9' },
+        { text: '🔟', callback_data: 'intensity_10' }
       ],
       // Добавляем кнопки навигации
       [
@@ -460,13 +460,13 @@ async function askForReason(chatId, messageId, emotion, intensity) {
   let level, levelEmoji;
   if (intensity <= 3) {
     level = 'слабая';
-    levelEmoji = '🟢';
+    levelEmoji = '🔵';
   } else if (intensity <= 7) {
     level = 'средняя';
-    levelEmoji = '🟡';
+    levelEmoji = '🟢';
   } else {
     level = 'сильная';
-    levelEmoji = '🔴';
+    levelEmoji = '🟠';
   }
 
   // Добавляем inline-клавиатуру для навигации
@@ -509,13 +509,13 @@ async function saveEmotionEntry(chatId, reason) {
     let level, levelEmoji;
     if (intensity <= 3) {
       level = 'слабая';
-      levelEmoji = '🟢';
+      levelEmoji = '🔵';
     } else if (intensity <= 7) {
       level = 'средняя';
-      levelEmoji = '🟡';
+      levelEmoji = '🟢';
     } else {
       level = 'сильная';
-      levelEmoji = '🔴';
+      levelEmoji = '🟠';
     }
 
     // Клавиатура с кнопкой просмотра таблицы
