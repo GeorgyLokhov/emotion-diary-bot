@@ -158,6 +158,62 @@ async function writeToSheetWithMerge(selectedEmotions, reason) {
     if (selectedEmotions.length > 1) {
       const requests = [];
       
+      // СНАЧАЛА разъединяем все существующие объединенные ячейки в нужном диапазоне
+      const unmergeRequests = [];
+      
+      // Разъединяем дату (колонка A)
+      unmergeRequests.push({
+        unmergeCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: startRow,
+            endRowIndex: startRow + selectedEmotions.length,
+            startColumnIndex: 0,
+            endColumnIndex: 1
+          }
+        }
+      });
+
+      // Разъединяем время (колонка B)
+      unmergeRequests.push({
+        unmergeCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: startRow,
+            endRowIndex: startRow + selectedEmotions.length,
+            startColumnIndex: 1,
+            endColumnIndex: 2
+          }
+        }
+      });
+
+      // Разъединяем комментарий (колонка E)
+      unmergeRequests.push({
+        unmergeCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: startRow,
+            endRowIndex: startRow + selectedEmotions.length,
+            startColumnIndex: 4,
+            endColumnIndex: 5
+          }
+        }
+      });
+
+      // Выполняем разъединение (игнорируем ошибки, если ячейки не были объединены)
+      try {
+        await sheetsClient.spreadsheets.batchUpdate({
+          spreadsheetId: GOOGLE_SHEET_ID,
+          resource: {
+            requests: unmergeRequests
+          }
+        });
+        console.log('✅ Existing merged cells unmerged');
+      } catch (unmergeError) {
+        console.log('ℹ️ No existing merged cells to unmerge (this is normal)');
+      }
+
+      // ТЕПЕРЬ объединяем ячейки
       // Объединяем дату (колонка A)
       requests.push({
         mergeCells: {
