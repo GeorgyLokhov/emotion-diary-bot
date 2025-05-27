@@ -1,4 +1,4 @@
-аconst express = require('express');
+const express = require('express');
 const { google } = require('googleapis');
 require('dotenv').config();
 
@@ -62,7 +62,7 @@ async function initializeGoogleSheets() {
         keyFile: '/etc/secrets/google-credentials.json',
         scopes: ['https://www.googleapis.com/auth/spreadsheets']
       });
-      console.log('✅ Using Secret File credentials');
+      console.log('Using Secret File credentials');
     } catch (error) {
       console.log('Secret file not found, trying environment variable...');
       
@@ -73,35 +73,51 @@ async function initializeGoogleSheets() {
           credentials: credentials,
           scopes: ['https://www.googleapis.com/auth/spreadsheets']
         });
-        console.log('✅ Using Environment Variable credentials');
+        console.log('Using Environment Variable credentials');
       } else {
         throw new Error('No Google credentials found');
       }
     }
     
     sheetsClient = google.sheets({ version: 'v4', auth });
-    console.log('✅ Google Sheets API initialized successfully');
+    console.log('Google Sheets API initialized successfully');
     
   } catch (error) {
-    console.error('❌ Google Sheets initialization failed:', error);
+    console.error('Google Sheets initialization failed:', error);
   }
 }
 
 // Функция для поиска групп записей, которые должны быть объединены
 function findMergeGroups(data) {
+  console.log('Analyzing data for merge groups...');
+  console.log('Total rows:', data.length);
+  
+  if (data.length <= 1) {
+    console.log('Not enough data for merging');
+    return [];
+  }
+
   const groups = [];
   let currentGroup = null;
   
   for (let i = 1; i < data.length; i++) { // Пропускаем заголовок
     const row = data[i];
-    if (!row || row.length < 5) continue;
+    console.log(`Row ${i + 1}:`, row);
+    
+    if (!row || row.length < 3) {
+      console.log(`Skipping row ${i + 1} - insufficient data`);
+      continue;
+    }
     
     const [date, time, emotion, intensity, comment] = row;
     
     // Если у нас есть дата и время, это начало новой группы
     if (date && time) {
+      console.log(`New group started at row ${i + 1}`);
+      
       // Завершаем предыдущую группу
       if (currentGroup && currentGroup.rows.length > 1) {
+        console.log(`Finished group: rows ${currentGroup.startRow + 1}-${currentGroup.endRow + 1}`);
         groups.push(currentGroup);
       }
       
@@ -116,22 +132,28 @@ function findMergeGroups(data) {
       };
     } else if (currentGroup && !date && !time && emotion) {
       // Это продолжение текущей группы
+      console.log(`Adding row ${i + 1} to current group`);
       currentGroup.endRow = i;
       currentGroup.rows.push(i);
+    } else {
+      console.log(`Row ${i + 1} doesn't fit any pattern`);
     }
   }
   
   // Не забываем последнюю группу
   if (currentGroup && currentGroup.rows.length > 1) {
+    console.log(`Finished last group: rows ${currentGroup.startRow + 1}-${currentGroup.endRow + 1}`);
     groups.push(currentGroup);
   }
   
+  console.log(`Found ${groups.length} groups for merging`);
   return groups;
 }
 
+// Умное объединение ячеек
 async function smartMergeCells() {
   try {
-    console.log('🔧 Starting smart merge process...');
+    console.log('Starting smart merge process...');
     
     // Получаем все данные из таблицы
     const allData = await sheetsClient.spreadsheets.values.get({
@@ -140,25 +162,25 @@ async function smartMergeCells() {
     });
     
     if (!allData.data.values) {
-      console.log('❌ No data to merge');
+      console.log('No data to merge');
       return;
     }
     
     const data = allData.data.values;
-    console.log('📋 Retrieved data for merging, rows:', data.length);
+    console.log('Retrieved data for merging, rows:', data.length);
     
     // Находим группы записей для объединения
     const mergeGroups = findMergeGroups(data);
     
     if (mergeGroups.length === 0) {
-      console.log('❌ No groups found for merging');
+      console.log('No groups found for merging');
       return;
     }
     
-    console.log(`🎯 Found ${mergeGroups.length} groups for merging`);
+    console.log(`Found ${mergeGroups.length} groups for merging`);
     
     // Сначала разъединяем все ячейки в колонках A, B, E
-    console.log('🔄 Unmerging existing cells...');
+    console.log('Unmerging existing cells...');
     try {
       await sheetsClient.spreadsheets.batchUpdate({
         spreadsheetId: GOOGLE_SHEET_ID,
@@ -194,9 +216,9 @@ async function smartMergeCells() {
           ]
         }
       });
-      console.log('✅ All cells unmerged');
+      console.log('All cells unmerged');
     } catch (unmergeError) {
-      console.log('ℹ️ No cells to unmerge (normal)');
+      console.log('No cells to unmerge (normal)');
     }
 
     // Теперь объединяем ячейки для каждой группы
@@ -206,7 +228,7 @@ async function smartMergeCells() {
       const startRowIndex = group.startRow; // API использует 0-based индексы
       const endRowIndex = group.endRow + 1; // endRow exclusive
       
-      console.log(`🔗 Group ${index + 1}: merging rows ${startRowIndex + 1}-${endRowIndex} (API: ${startRowIndex}-${endRowIndex})`);
+      console.log(`Group ${index + 1}: merging rows ${startRowIndex + 1}-${endRowIndex} (API: ${startRowIndex}-${endRowIndex})`);
       
       // Объединяем дату (колонка A)
       mergeRequests.push({
@@ -254,20 +276,20 @@ async function smartMergeCells() {
     });
 
     if (mergeRequests.length > 0) {
-      console.log(`🔗 Executing ${mergeRequests.length} merge requests...`);
+      console.log(`Executing ${mergeRequests.length} merge requests...`);
       await sheetsClient.spreadsheets.batchUpdate({
         spreadsheetId: GOOGLE_SHEET_ID,
         resource: {
           requests: mergeRequests
         }
       });
-      console.log(`✅ Successfully merged ${mergeRequests.length} cell ranges`);
+      console.log(`Successfully merged ${mergeRequests.length} cell ranges`);
     } else {
-      console.log('⚠️ No merge requests to execute');
+      console.log('No merge requests to execute');
     }
     
   } catch (error) {
-    console.error('❌ Smart merge error:', error);
+    console.error('Smart merge error:', error);
   }
 }
 
@@ -304,7 +326,7 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
           values: [['Дата', 'Время', 'Что я чувствую?', 'Интенсивность', 'Почему я это чувствую?']]
         }
       });
-      console.log('✅ Headers created');
+      console.log('Headers created');
     }
 
     // Подготавливаем данные для записи
@@ -319,7 +341,7 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
       }
     });
 
-    console.log('📝 Writing data:', values);
+    console.log('Writing data:', values);
 
     // Записываем данные
     await sheetsClient.spreadsheets.values.append({
@@ -331,7 +353,7 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
       }
     });
 
-    console.log('✅ Data written, waiting 2 seconds before merging...');
+    console.log('Data written, waiting 2 seconds before merging...');
 
     // ЖДЕМ 2 секунды чтобы данные точно записались
     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -341,76 +363,13 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
       await smartMergeCells();
     }
     
-    console.log(`✅ Data written to Google Sheets: ${selectedEmotions.length} emotions`);
+    console.log(`Data written to Google Sheets: ${selectedEmotions.length} emotions`);
     return true;
     
   } catch (error) {
-    console.error('❌ Error writing to Google Sheets:', error);
+    console.error('Error writing to Google Sheets:', error);
     return false;
   }
-}
-
-// Улучшенная функция поиска групп с логированием
-function findMergeGroups(data) {
-  console.log('🔍 Analyzing data for merge groups...');
-  console.log('📊 Total rows:', data.length);
-  
-  if (data.length <= 1) {
-    console.log('❌ Not enough data for merging');
-    return [];
-  }
-
-  const groups = [];
-  let currentGroup = null;
-  
-  for (let i = 1; i < data.length; i++) { // Пропускаем заголовок
-    const row = data[i];
-    console.log(`Row ${i + 1}:`, row);
-    
-    if (!row || row.length < 3) {
-      console.log(`⏭️ Skipping row ${i + 1} - insufficient data`);
-      continue;
-    }
-    
-    const [date, time, emotion, intensity, comment] = row;
-    
-    // Если у нас есть дата и время, это начало новой группы
-    if (date && time) {
-      console.log(`🆕 New group started at row ${i + 1}`);
-      
-      // Завершаем предыдущую группу
-      if (currentGroup && currentGroup.rows.length > 1) {
-        console.log(`✅ Finished group: rows ${currentGroup.startRow + 1}-${currentGroup.endRow + 1}`);
-        groups.push(currentGroup);
-      }
-      
-      // Начинаем новую группу
-      currentGroup = {
-        startRow: i,
-        endRow: i,
-        rows: [i],
-        date: date,
-        time: time,
-        comment: comment
-      };
-    } else if (currentGroup && !date && !time && emotion) {
-      // Это продолжение текущей группы
-      console.log(`➕ Adding row ${i + 1} to current group`);
-      currentGroup.endRow = i;
-      currentGroup.rows.push(i);
-    } else {
-      console.log(`⚠️ Row ${i + 1} doesn't fit any pattern`);
-    }
-  }
-  
-  // Не забываем последнюю группу
-  if (currentGroup && currentGroup.rows.length > 1) {
-    console.log(`✅ Finished last group: rows ${currentGroup.startRow + 1}-${currentGroup.endRow + 1}`);
-    groups.push(currentGroup);
-  }
-  
-  console.log(`🎯 Found ${groups.length} groups for merging`);
-  return groups;
 }
 
 // Функции для работы с Telegram API
@@ -437,7 +396,7 @@ async function sendMessage(chatId, text, keyboard = null) {
       const errorText = await response.text();
       console.error('Telegram API error:', errorText);
     } else {
-      console.log(`✅ Message sent to ${chatId}`);
+      console.log(`Message sent to ${chatId}`);
     }
   } catch (error) {
     console.error('Send message error:', error);
@@ -921,20 +880,20 @@ app.get('/', (req, res) => {
 
 // Инициализация и запуск сервера
 async function startServer() {
-  console.log('🚀 Starting Telegram Emotion Bot...');
-  console.log(`📊 Google Sheets ID: ${GOOGLE_SHEET_ID}`);
-  console.log(`🤖 Telegram Bot Token: ${TELEGRAM_TOKEN ? 'Configured ✅' : 'Missing ❌'}`);
+  console.log('Starting Telegram Emotion Bot...');
+  console.log(`Google Sheets ID: ${GOOGLE_SHEET_ID}`);
+  console.log(`Telegram Bot Token: ${TELEGRAM_TOKEN ? 'Configured' : 'Missing'}`);
   
   await initializeGoogleSheets();
   
   app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`🌐 Health check: http://localhost:${PORT}/health`);
-    console.log(`📱 Webhook endpoint: http://localhost:${PORT}/webhook`);
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Health check: http://localhost:${PORT}/health`);
+    console.log(`Webhook endpoint: http://localhost:${PORT}/webhook`);
   });
 }
 
 startServer().catch(error => {
-  console.error('❌ Failed to start server:', error);
+  console.error('Failed to start server:', error);
   process.exit(1);
 });
