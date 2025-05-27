@@ -1,4 +1,4 @@
-const express = require('express');
+аconst express = require('express');
 const { google } = require('googleapis');
 require('dotenv').config();
 
@@ -127,6 +127,148 @@ function findMergeGroups(data) {
   }
   
   return groups;
+}
+
+async function smartMergeCells() {
+  try {
+    console.log('🔧 Starting smart merge process...');
+    
+    // Получаем все данные из таблицы
+    const allData = await sheetsClient.spreadsheets.values.get({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: 'A:E',
+    });
+    
+    if (!allData.data.values) {
+      console.log('❌ No data to merge');
+      return;
+    }
+    
+    const data = allData.data.values;
+    console.log('📋 Retrieved data for merging, rows:', data.length);
+    
+    // Находим группы записей для объединения
+    const mergeGroups = findMergeGroups(data);
+    
+    if (mergeGroups.length === 0) {
+      console.log('❌ No groups found for merging');
+      return;
+    }
+    
+    console.log(`🎯 Found ${mergeGroups.length} groups for merging`);
+    
+    // Сначала разъединяем все ячейки в колонках A, B, E
+    console.log('🔄 Unmerging existing cells...');
+    try {
+      await sheetsClient.spreadsheets.batchUpdate({
+        spreadsheetId: GOOGLE_SHEET_ID,
+        resource: {
+          requests: [
+            {
+              unmergeCells: {
+                range: {
+                  sheetId: 0,
+                  startColumnIndex: 0,
+                  endColumnIndex: 1
+                }
+              }
+            },
+            {
+              unmergeCells: {
+                range: {
+                  sheetId: 0,
+                  startColumnIndex: 1,
+                  endColumnIndex: 2
+                }
+              }
+            },
+            {
+              unmergeCells: {
+                range: {
+                  sheetId: 0,
+                  startColumnIndex: 4,
+                  endColumnIndex: 5
+                }
+              }
+            }
+          ]
+        }
+      });
+      console.log('✅ All cells unmerged');
+    } catch (unmergeError) {
+      console.log('ℹ️ No cells to unmerge (normal)');
+    }
+
+    // Теперь объединяем ячейки для каждой группы
+    const mergeRequests = [];
+    
+    mergeGroups.forEach((group, index) => {
+      const startRowIndex = group.startRow; // API использует 0-based индексы
+      const endRowIndex = group.endRow + 1; // endRow exclusive
+      
+      console.log(`🔗 Group ${index + 1}: merging rows ${startRowIndex + 1}-${endRowIndex} (API: ${startRowIndex}-${endRowIndex})`);
+      
+      // Объединяем дату (колонка A)
+      mergeRequests.push({
+        mergeCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: startRowIndex,
+            endRowIndex: endRowIndex,
+            startColumnIndex: 0,
+            endColumnIndex: 1
+          },
+          mergeType: 'MERGE_ALL'
+        }
+      });
+
+      // Объединяем время (колонка B)
+      mergeRequests.push({
+        mergeCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: startRowIndex,
+            endRowIndex: endRowIndex,
+            startColumnIndex: 1,
+            endColumnIndex: 2
+          },
+          mergeType: 'MERGE_ALL'
+        }
+      });
+
+      // Объединяем комментарий (колонка E), только если он не пустой
+      if (group.comment && group.comment.trim()) {
+        mergeRequests.push({
+          mergeCells: {
+            range: {
+              sheetId: 0,
+              startRowIndex: startRowIndex,
+              endRowIndex: endRowIndex,
+              startColumnIndex: 4,
+              endColumnIndex: 5
+            },
+            mergeType: 'MERGE_ALL'
+          }
+        });
+      }
+    });
+
+    if (mergeRequests.length > 0) {
+      console.log(`🔗 Executing ${mergeRequests.length} merge requests...`);
+      await sheetsClient.spreadsheets.batchUpdate({
+        spreadsheetId: GOOGLE_SHEET_ID,
+        resource: {
+          requests: mergeRequests
+        }
+      });
+      console.log(`✅ Successfully merged ${mergeRequests.length} cell ranges`);
+    } else {
+      console.log('⚠️ No merge requests to execute');
+    }
+    
+  } catch (error) {
+    console.error('❌ Smart merge error:', error);
+  }
 }
 
 // Функция записи в Google Sheets с умным объединением ячеек
