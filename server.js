@@ -10,6 +10,14 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const PORT = process.env.PORT || 3000;
 
+// Константы для состояний
+const STATES = {
+  NONE: 'none',
+  CHOOSING_EMOTION: 'choosing_emotion',
+  CHOOSING_INTENSITY: 'choosing_intensity',
+  ENTERING_REASON: 'entering_reason'
+};
+
 // Обновленные эмоции с эмодзи
 const EMOTIONS = {
   'радость': '😊',
@@ -28,6 +36,17 @@ const EMOTIONS = {
 
 // Временное хранилище пользовательских сессий
 const userSessions = new Map();
+
+// Функция создания новой сессии
+function createSession() {
+  return {
+    state: STATES.NONE,
+    emotion: null,
+    intensity: null,
+    previousState: null,
+    messageId: null
+  };
+}
 
 // Инициализация Google Sheets API
 let sheetsClient;
@@ -226,14 +245,26 @@ async function handleMessage(message) {
   console.log(`Message from ${chatId}: "${text}"`);
   
   if (text === '/start') {
+    userSessions.delete(chatId); // Очищаем сессию при старте
     await sendStartMessage(chatId);
   } else {
-    // Проверяем, ждем ли причину эмоции
     const session = userSessions.get(chatId);
-    if (session && session.emotion && session.intensity !== undefined) {
+    
+    // Проверяем, ждем ли мы ввод причины
+    if (session && session.state === STATES.ENTERING_REASON && 
+        session.emotion && session.intensity !== undefined) {
       await saveEmotionEntry(chatId, text);
     } else {
-      await sendMessage(chatId, '🤖 Используй кнопку "📝 Внести запись" для начала работы с дневником эмоций.');
+      // Если пользователь пишет вне контекста, предлагаем начать заново
+      const keyboard = {
+        inline_keyboard: [[
+          { text: '📝 Внести запись', callback_data: 'add_entry' }
+        ]]
+      };
+      
+      await sendMessage(chatId, 
+        '🤖 Используй кнопку "📝 Внести запись" для начала работы с дневником эмоций.', 
+        keyboard);
     }
   }
 }
@@ -249,22 +280,84 @@ async function handleCallback(callbackQuery) {
   // Подтверждаем получение callback
   await answerCallbackQuery(callbackQuery.id);
   
+  let session = userSessions.get(chatId) || createSession();
+  session.messageId = messageId;
+  
   if (data === 'add_entry') {
-    userSessions.delete(chatId);
+    session = createSession();
+    session.state = STATES.CHOOSING_EMOTION;
+    session.messageId = messageId;
+    userSessions.set(chatId, session);
     await showEmotionKeyboard(chatId, messageId);
+    
+  } else if (data === 'back') {
+    await handleBack(chatId, messageId, session);
+    
+  } else if (data === 'cancel') {
+    await handleCancel(chatId, messageId);
+    
   } else if (data.startsWith('emotion_')) {
     const emotion = data.replace('emotion_', '');
-    userSessions.set(chatId, { emotion });
+    session.previousState = session.state;
+    session.emotion = emotion;
+    session.state = STATES.CHOOSING_INTENSITY;
+    userSessions.set(chatId, session);
     await showIntensityKeyboard(chatId, messageId, emotion);
+    
   } else if (data.startsWith('intensity_')) {
     const intensity = parseInt(data.replace('intensity_', ''));
-    const session = userSessions.get(chatId) || {};
-    userSessions.set(chatId, { ...session, intensity });
+    session.previousState = session.state;
+    session.intensity = intensity;
+    session.state = STATES.ENTERING_REASON;
+    userSessions.set(chatId, session);
     await askForReason(chatId, messageId, session.emotion, intensity);
+    
   } else if (data === 'ignore') {
     // Игнорируем нажатия на заголовки
     return;
   }
+}
+
+// Функции для обработки возврата и отмены
+async function handleBack(chatId, messageId, session) {
+  switch (session.state) {
+    case STATES.CHOOSING_INTENSITY:
+      // Возврат к выбору эмоций
+      session.state = STATES.CHOOSING_EMOTION;
+      session.emotion = null;
+      session.previousState = null;
+      userSessions.set(chatId, session);
+      await showEmotionKeyboard(chatId, messageId);
+      break;
+      
+    case STATES.ENTERING_REASON:
+      // Возврат к выбору интенсивности
+      session.state = STATES.CHOOSING_INTENSITY;
+      session.previousState = STATES.CHOOSING_EMOTION;
+      userSessions.set(chatId, session);
+      await showIntensityKeyboard(chatId, messageId, session.emotion);
+      break;
+      
+    default:
+      // Если мы в начальном состоянии, возврат к главному меню
+      await sendStartMessage(chatId);
+      userSessions.delete(chatId);
+  }
+}
+
+async function handleCancel(chatId, messageId) {
+  const keyboard = {
+    inline_keyboard: [[
+      { text: '📝 Внести запись', callback_data: 'add_entry' }
+    ]]
+  };
+  
+  const text = `❌ <b>Запись отменена</b>
+
+Данные не были сохранены. Можешь начать заново, когда будешь готов.`;
+  
+  await editMessage(chatId, messageId, text, keyboard);
+  userSessions.delete(chatId);
 }
 
 // Отправка стартового сообщения
@@ -295,6 +388,7 @@ async function showEmotionKeyboard(chatId, messageId) {
   const emotions = Object.keys(EMOTIONS);
   const keyboard = { inline_keyboard: [] };
 
+  // Добавляем эмоции (по 2 в ряд)
   for (let i = 0; i < emotions.length; i += 2) {
     const row = [];
     for (let j = 0; j < 2 && i + j < emotions.length; j++) {
@@ -307,6 +401,11 @@ async function showEmotionKeyboard(chatId, messageId) {
     }
     keyboard.inline_keyboard.push(row);
   }
+
+  // Добавляем кнопку отмены
+  keyboard.inline_keyboard.push([
+    { text: '❌ Отменить', callback_data: 'cancel' }
+  ]);
 
   const text = `🎭 <b>Что ты чувствуешь прямо сейчас?</b>
 
@@ -337,6 +436,11 @@ async function showIntensityKeyboard(chatId, messageId, emotion) {
         { text: '8️⃣ 8', callback_data: 'intensity_8' },
         { text: '9️⃣ 9', callback_data: 'intensity_9' },
         { text: '🔟 10', callback_data: 'intensity_10' }
+      ],
+      // Добавляем кнопки навигации
+      [
+        { text: '⬅️ Назад', callback_data: 'back' },
+        { text: '❌ Отменить', callback_data: 'cancel' }
       ]
     ]
   };
@@ -364,13 +468,24 @@ async function askForReason(chatId, messageId, emotion, intensity) {
     levelEmoji = '🔴';
   }
 
+  // Добавляем inline-клавиатуру для навигации
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: '⬅️ Назад', callback_data: 'back' },
+        { text: '❌ Отменить', callback_data: 'cancel' }
+      ]
+    ]
+  };
+
   const text = `💭 <b>Почему ты это чувствуешь?</b>
 
-Интенсивность: ${levelEmoji} ${level} (${intensity}/10)
+🎭 Эмоция: ${EMOTIONS[emotion]} ${emotion}
+📊 Интенсивность: ${levelEmoji} ${level} (${intensity}/10)
 
-Опиши причину или ситуацию, которая вызвала это чувство`;
+Опиши причину или ситуацию, которая вызвала это чувство:`;
 
-  await editMessage(chatId, messageId, text);
+  await editMessage(chatId, messageId, text, keyboard);
 }
 
 // Сохранение записи эмоции (упрощенная версия без преобразований)
