@@ -13,8 +13,8 @@ const PORT = process.env.PORT || 3000;
 // Константы для состояний
 const STATES = {
   NONE: 'none',
-  CHOOSING_EMOTION: 'choosing_emotion',
-  CHOOSING_INTENSITY: 'choosing_intensity',
+  CHOOSING_EMOTIONS: 'choosing_emotions',
+  CHOOSING_INTENSITY_FOR_EMOTION: 'choosing_intensity_for_emotion',
   ENTERING_REASON: 'entering_reason'
 };
 
@@ -43,8 +43,8 @@ const userSessions = new Map();
 function createSession() {
   return {
     state: STATES.NONE,
-    emotion: null,
-    intensity: null,
+    selectedEmotions: [], // [{emotion: string, intensity: number}]
+    currentEmotionForIntensity: null,
     previousState: null,
     messageId: null
   };
@@ -87,10 +87,9 @@ async function initializeGoogleSheets() {
   }
 }
 
-// Функция записи в Google Sheets (с обновленными заголовками)
-async function writeToSheet(emotion, intensity, reason) {
+// Функция записи в Google Sheets с объединением ячеек
+async function writeToSheetWithMerge(selectedEmotions, reason) {
   try {
-    // Разделяем дату и время на отдельные переменные
     const now = new Date();
     const currentDateTime = now.toLocaleString('ru-RU', { 
       timeZone: 'Europe/Moscow',
@@ -101,18 +100,17 @@ async function writeToSheet(emotion, intensity, reason) {
       minute: '2-digit',
     });
     
-    // Разделяем на дату и время
     const [dateStr, timeStr] = currentDateTime.split(', ');
     
-    console.log(`Saving data: Date=${dateStr}, Time=${timeStr}, Emotion=${emotion}`);
+    console.log(`Saving data: Date=${dateStr}, Time=${timeStr}, Emotions=${selectedEmotions.length}`);
     
-    // Проверяем заголовки (5 колонок)
+    // Проверяем заголовки
     const headerCheck = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
       range: 'A1:E1',
     });
     
-    // Создаем заголовки если их нет (обновленные заголовки)
+    // Создаем заголовки если их нет
     if (!headerCheck.data.values || !headerCheck.data.values[0] || headerCheck.data.values[0][0] !== 'Дата') {
       await sheetsClient.spreadsheets.values.update({
         spreadsheetId: GOOGLE_SHEET_ID,
@@ -122,20 +120,98 @@ async function writeToSheet(emotion, intensity, reason) {
           values: [['Дата', 'Время', 'Что я чувствую?', 'Интенсивность', 'Почему я это чувствую?']]
         }
       });
-      console.log('✅ Headers created with updated column names');
+      console.log('✅ Headers created');
     }
+
+    // Получаем информацию о листе для определения следующей свободной строки
+    const sheetInfo = await sheetsClient.spreadsheets.values.get({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: 'A:A',
+    });
     
-    // Добавляем новую запись (эмоция как есть, без преобразований)
+    const nextRow = (sheetInfo.data.values ? sheetInfo.data.values.length : 1) + 1;
+    const startRow = nextRow - 1; // Индекс для API (начинается с 0)
+    
+    // Подготавливаем данные для записи
+    const values = [];
+    selectedEmotions.forEach((emotionData, index) => {
+      if (index === 0) {
+        // Первая строка содержит дату, время, эмоцию, интенсивность и комментарий
+        values.push([dateStr, timeStr, emotionData.emotion, emotionData.intensity, reason]);
+      } else {
+        // Остальные строки содержат только эмоцию и интенсивность
+        values.push(['', '', emotionData.emotion, emotionData.intensity, '']);
+      }
+    });
+
+    // Записываем данные
     await sheetsClient.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
       range: 'A:E',
       valueInputOption: 'RAW',
       resource: {
-        values: [[dateStr, timeStr, emotion, intensity, reason]]
+        values: values
       }
     });
+
+    // Если эмоций больше одной, объединяем ячейки для даты, времени и комментария
+    if (selectedEmotions.length > 1) {
+      const requests = [];
+      
+      // Объединяем дату (колонка A)
+      requests.push({
+        mergeCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: startRow,
+            endRowIndex: startRow + selectedEmotions.length,
+            startColumnIndex: 0,
+            endColumnIndex: 1
+          },
+          mergeType: 'MERGE_ALL'
+        }
+      });
+
+      // Объединяем время (колонка B)
+      requests.push({
+        mergeCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: startRow,
+            endRowIndex: startRow + selectedEmotions.length,
+            startColumnIndex: 1,
+            endColumnIndex: 2
+          },
+          mergeType: 'MERGE_ALL'
+        }
+      });
+
+      // Объединяем комментарий (колонка E)
+      requests.push({
+        mergeCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: startRow,
+            endRowIndex: startRow + selectedEmotions.length,
+            startColumnIndex: 4,
+            endColumnIndex: 5
+          },
+          mergeType: 'MERGE_ALL'
+        }
+      });
+
+      // Выполняем объединение
+      await sheetsClient.spreadsheets.batchUpdate({
+        spreadsheetId: GOOGLE_SHEET_ID,
+        resource: {
+          requests: requests
+        }
+      });
+
+      console.log('✅ Cells merged successfully');
+    }
     
-    console.log(`✅ Data written to Google Sheets: ${dateStr} ${timeStr} - ${emotion} (${intensity}) - ${reason}`);
+    console.log(`✅ Data written to Google Sheets: ${selectedEmotions.length} emotions`);
     return true;
     
   } catch (error) {
@@ -247,17 +323,15 @@ async function handleMessage(message) {
   console.log(`Message from ${chatId}: "${text}"`);
   
   if (text === '/start') {
-    userSessions.delete(chatId); // Очищаем сессию при старте
+    userSessions.delete(chatId);
     await sendStartMessage(chatId);
   } else {
     const session = userSessions.get(chatId);
     
-    // Проверяем, ждем ли мы ввод причины
     if (session && session.state === STATES.ENTERING_REASON && 
-        session.emotion && session.intensity !== undefined) {
+        session.selectedEmotions.length > 0) {
       await saveEmotionEntry(chatId, text);
     } else {
-      // Если пользователь пишет вне контекста, предлагаем начать заново
       const keyboard = {
         inline_keyboard: [[
           { text: '📝 Внести запись', callback_data: 'add_entry' }
@@ -279,7 +353,6 @@ async function handleCallback(callbackQuery) {
   
   console.log(`Callback from ${chatId}: ${data}`);
   
-  // Подтверждаем получение callback
   await answerCallbackQuery(callbackQuery.id);
   
   let session = userSessions.get(chatId) || createSession();
@@ -287,10 +360,20 @@ async function handleCallback(callbackQuery) {
   
   if (data === 'add_entry') {
     session = createSession();
-    session.state = STATES.CHOOSING_EMOTION;
+    session.state = STATES.CHOOSING_EMOTIONS;
     session.messageId = messageId;
     userSessions.set(chatId, session);
     await showEmotionKeyboard(chatId, messageId);
+    
+  } else if (data === 'done_selecting_emotions') {
+    if (session.selectedEmotions.length === 0) {
+      return; // Нельзя завершить без выбора эмоций
+    }
+    // Переходим к выбору интенсивности для первой эмоции
+    session.currentEmotionForIntensity = session.selectedEmotions[0].emotion;
+    session.state = STATES.CHOOSING_INTENSITY_FOR_EMOTION;
+    userSessions.set(chatId, session);
+    await showIntensityKeyboard(chatId, messageId, session.currentEmotionForIntensity, 1, session.selectedEmotions.length);
     
   } else if (data === 'back') {
     await handleBack(chatId, messageId, session);
@@ -300,48 +383,85 @@ async function handleCallback(callbackQuery) {
     
   } else if (data.startsWith('emotion_')) {
     const emotion = data.replace('emotion_', '');
-    session.previousState = session.state;
-    session.emotion = emotion;
-    session.state = STATES.CHOOSING_INTENSITY;
-    userSessions.set(chatId, session);
-    await showIntensityKeyboard(chatId, messageId, emotion);
+    await toggleEmotion(chatId, messageId, session, emotion);
     
   } else if (data.startsWith('intensity_')) {
     const intensity = parseInt(data.replace('intensity_', ''));
-    session.previousState = session.state;
-    session.intensity = intensity;
-    session.state = STATES.ENTERING_REASON;
-    userSessions.set(chatId, session);
-    await askForReason(chatId, messageId, session.emotion, intensity);
+    await setIntensityForCurrentEmotion(chatId, messageId, session, intensity);
     
   } else if (data === 'ignore') {
-    // Игнорируем нажатия на заголовки
     return;
   }
 }
 
-// Функции для обработки возврата и отмены
+// Переключение выбора эмоции
+async function toggleEmotion(chatId, messageId, session, emotion) {
+  const existingIndex = session.selectedEmotions.findIndex(e => e.emotion === emotion);
+  
+  if (existingIndex >= 0) {
+    // Убираем эмоцию
+    session.selectedEmotions.splice(existingIndex, 1);
+  } else {
+    // Добавляем эмоцию (без интенсивности пока)
+    session.selectedEmotions.push({ emotion, intensity: null });
+  }
+  
+  userSessions.set(chatId, session);
+  await showEmotionKeyboard(chatId, messageId);
+}
+
+// Установка интенсивности для текущей эмоции
+async function setIntensityForCurrentEmotion(chatId, messageId, session, intensity) {
+  // Находим текущую эмоцию и устанавливаем интенсивность
+  const emotionIndex = session.selectedEmotions.findIndex(e => e.emotion === session.currentEmotionForIntensity);
+  if (emotionIndex >= 0) {
+    session.selectedEmotions[emotionIndex].intensity = intensity;
+  }
+  
+  // Находим следующую эмоцию без интенсивности
+  const nextEmotion = session.selectedEmotions.find(e => e.intensity === null);
+  
+  if (nextEmotion) {
+    // Есть еще эмоции без интенсивности
+    session.currentEmotionForIntensity = nextEmotion.emotion;
+    userSessions.set(chatId, session);
+    
+    const currentNumber = session.selectedEmotions.findIndex(e => e.emotion === nextEmotion.emotion) + 1;
+    await showIntensityKeyboard(chatId, messageId, nextEmotion.emotion, currentNumber, session.selectedEmotions.length);
+  } else {
+    // Все интенсивности установлены, переходим к вводу комментария
+    session.state = STATES.ENTERING_REASON;
+    session.currentEmotionForIntensity = null;
+    userSessions.set(chatId, session);
+    await askForReason(chatId, messageId, session.selectedEmotions);
+  }
+}
+
+// Обработка возврата и отмены
 async function handleBack(chatId, messageId, session) {
   switch (session.state) {
-    case STATES.CHOOSING_INTENSITY:
+    case STATES.CHOOSING_INTENSITY_FOR_EMOTION:
       // Возврат к выбору эмоций
-      session.state = STATES.CHOOSING_EMOTION;
-      session.emotion = null;
-      session.previousState = null;
+      session.state = STATES.CHOOSING_EMOTIONS;
+      session.currentEmotionForIntensity = null;
+      // Очищаем интенсивности
+      session.selectedEmotions.forEach(e => e.intensity = null);
       userSessions.set(chatId, session);
       await showEmotionKeyboard(chatId, messageId);
       break;
       
     case STATES.ENTERING_REASON:
-      // Возврат к выбору интенсивности
-      session.state = STATES.CHOOSING_INTENSITY;
-      session.previousState = STATES.CHOOSING_EMOTION;
-      userSessions.set(chatId, session);
-      await showIntensityKeyboard(chatId, messageId, session.emotion);
+      // Возврат к выбору интенсивности (для первой эмоции)
+      if (session.selectedEmotions.length > 0) {
+        session.selectedEmotions.forEach(e => e.intensity = null);
+        session.currentEmotionForIntensity = session.selectedEmotions[0].emotion;
+        session.state = STATES.CHOOSING_INTENSITY_FOR_EMOTION;
+        userSessions.set(chatId, session);
+        await showIntensityKeyboard(chatId, messageId, session.currentEmotionForIntensity, 1, session.selectedEmotions.length);
+      }
       break;
       
     default:
-      // Если мы в начальном состоянии, возврат к главному меню
       await sendStartMessage(chatId);
       userSessions.delete(chatId);
   }
@@ -374,6 +494,8 @@ async function sendStartMessage(chatId) {
 
 Привет! Я помогу тебе отслеживать эмоциональные состояния и лучше понимать себя.
 
+Теперь ты можешь выбирать несколько эмоций за раз и указывать интенсивность для каждой из них.
+
 Регулярное ведение дневника эмоций поможет:
 • Выявить эмоциональные паттерны
 • Понять триггеры различных состояний  
@@ -385,39 +507,48 @@ async function sendStartMessage(chatId) {
   await sendMessage(chatId, text, keyboard);
 }
 
-// Показать клавиатуру выбора эмоций
+// Показать клавиатуру выбора эмоций (множественный выбор)
 async function showEmotionKeyboard(chatId, messageId) {
+  const session = userSessions.get(chatId);
   const emotions = Object.keys(EMOTIONS);
   const keyboard = { inline_keyboard: [] };
 
-  // Добавляем эмоции (по 2 в ряд)
-  for (let i = 0; i < emotions.length; i += 2) {
-    const row = [];
-    for (let j = 0; j < 2 && i + j < emotions.length; j++) {
-      const emotion = emotions[i + j];
-      const emoji = EMOTIONS[emotion];
-      row.push({
-        text: `${emoji} ${emotion.charAt(0).toUpperCase() + emotion.slice(1)}`,
-        callback_data: `emotion_${emotion}`
-      });
-    }
-    keyboard.inline_keyboard.push(row);
+  // Добавляем эмоции (по 1 в ряд для лучшего отображения выбранных)
+  emotions.forEach(emotion => {
+    const emoji = EMOTIONS[emotion];
+    const isSelected = session.selectedEmotions.some(e => e.emotion === emotion);
+    const text = isSelected 
+      ? `✅ ${emoji} ${emotion.charAt(0).toUpperCase() + emotion.slice(1)}`
+      : `${emoji} ${emotion.charAt(0).toUpperCase() + emotion.slice(1)}`;
+    
+    keyboard.inline_keyboard.push([{
+      text: text,
+      callback_data: `emotion_${emotion}`
+    }]);
+  });
+
+  // Добавляем кнопки управления
+  const controlButtons = [];
+  if (session.selectedEmotions.length > 0) {
+    controlButtons.push({ text: '✅ Продолжить', callback_data: 'done_selecting_emotions' });
   }
+  controlButtons.push({ text: '❌ Отменить', callback_data: 'cancel' });
+  
+  keyboard.inline_keyboard.push(controlButtons);
 
-  // Добавляем кнопку отмены
-  keyboard.inline_keyboard.push([
-    { text: '❌ Отменить', callback_data: 'cancel' }
-  ]);
+  let text = `🎭 <b>Что ты чувствуешь прямо сейчас?</b>
 
-  const text = `🎭 <b>Что ты чувствуешь прямо сейчас?</b>
+Выбери одну или несколько эмоций. Нажми на эмоцию чтобы выбрать/убрать её.`;
 
-Выбери эмоцию, которая наиболее точно описывает твое текущее состояние:`;
+  if (session.selectedEmotions.length > 0) {
+    text += `\n\n<b>Выбрано эмоций:</b> ${session.selectedEmotions.length}`;
+  }
 
   await editMessage(chatId, messageId, text, keyboard);
 }
 
 // Показать клавиатуру выбора интенсивности
-async function showIntensityKeyboard(chatId, messageId, emotion) {
+async function showIntensityKeyboard(chatId, messageId, emotion, currentNumber, totalNumber) {
   const keyboard = {
     inline_keyboard: [
       [{ text: 'Слабая (1-3)', callback_data: 'ignore' }],
@@ -439,7 +570,6 @@ async function showIntensityKeyboard(chatId, messageId, emotion) {
         { text: '9️⃣', callback_data: 'intensity_9' },
         { text: '🔟', callback_data: 'intensity_10' }
       ],
-      // Добавляем кнопки навигации
       [
         { text: '⬅️ Назад', callback_data: 'back' },
         { text: '❌ Отменить', callback_data: 'cancel' }
@@ -448,7 +578,9 @@ async function showIntensityKeyboard(chatId, messageId, emotion) {
   };
 
   const emoji = EMOTIONS[emotion];
-  const text = `📊 <b>Интенсивность чувства: ${emoji} ${emotion}</b>
+  const text = `📊 <b>Интенсивность эмоции ${currentNumber}/${totalNumber}</b>
+
+🎭 <b>${emoji} ${emotion}</b>
 
 Насколько сильно ты это ощущаешь?
 Выбери число от 1 до 10:`;
@@ -456,21 +588,8 @@ async function showIntensityKeyboard(chatId, messageId, emotion) {
   await editMessage(chatId, messageId, text, keyboard);
 }
 
-// Запросить причину эмоции
-async function askForReason(chatId, messageId, emotion, intensity) {
-  let level, levelEmoji;
-  if (intensity <= 3) {
-    level = 'слабая';
-    levelEmoji = '🔵';
-  } else if (intensity <= 7) {
-    level = 'средняя';
-    levelEmoji = '🟢';
-  } else {
-    level = 'сильная';
-    levelEmoji = '🟠';
-  }
-
-  // Добавляем inline-клавиатуру для навигации
+// Запросить причину эмоций
+async function askForReason(chatId, messageId, selectedEmotions) {
   const keyboard = {
     inline_keyboard: [
       [
@@ -480,46 +599,46 @@ async function askForReason(chatId, messageId, emotion, intensity) {
     ]
   };
 
-  const text = `💭 <b>Почему ты это чувствуешь?</b>
-
-🎭 Эмоция: ${EMOTIONS[emotion]} ${emotion}
-📊 Интенсивность: ${levelEmoji} ${level} (${intensity}/10)
-
-Опиши причину или ситуацию, которая вызвала это чувство:`;
-
-  await editMessage(chatId, messageId, text, keyboard);
-}
-
-// Сохранение записи эмоции (упрощенная версия без преобразований)
-async function saveEmotionEntry(chatId, reason) {
-  const session = userSessions.get(chatId);
-  if (!session || !session.emotion || session.intensity === undefined) {
-    await sendMessage(chatId, '❌ Ошибка: данные сессии не найдены. Начни заново с кнопки "📝 Внести запись".');
-    return;
-  }
-
-  const { emotion, intensity } = session;
-  
-  console.log(`Saving emotion: ${emotion} (${intensity}) - ${reason}`);
-  
-  // Записываем в Google Sheets (эмоция как есть, без преобразований)
-  const success = await writeToSheet(emotion, intensity, reason);
-  
-  if (success) {
-    const emoji = EMOTIONS[emotion];
+  let emotionsText = '';
+  selectedEmotions.forEach((emotionData, index) => {
+    const emoji = EMOTIONS[emotionData.emotion];
     let level, levelEmoji;
-    if (intensity <= 3) {
+    if (emotionData.intensity <= 3) {
       level = 'слабая';
       levelEmoji = '🔵';
-    } else if (intensity <= 7) {
+    } else if (emotionData.intensity <= 7) {
       level = 'средняя';
       levelEmoji = '🟢';
     } else {
       level = 'сильная';
       levelEmoji = '🟠';
     }
+    
+    emotionsText += `${index + 1}. ${emoji} ${emotionData.emotion} - ${levelEmoji} ${level} (${emotionData.intensity}/10)\n`;
+  });
 
-    // Клавиатура с кнопкой просмотра таблицы
+  const text = `💭 <b>Почему ты это чувствуешь?</b>
+
+<b>Выбранные эмоции:</b>
+${emotionsText}
+Опиши причину или ситуацию, которая вызвала эти чувства:`;
+
+  await editMessage(chatId, messageId, text, keyboard);
+}
+
+// Сохранение записи эмоций
+async function saveEmotionEntry(chatId, reason) {
+  const session = userSessions.get(chatId);
+  if (!session || session.selectedEmotions.length === 0) {
+    await sendMessage(chatId, '❌ Ошибка: данные сессии не найдены. Начни заново с кнопки "📝 Внести запись".');
+    return;
+  }
+
+  console.log(`Saving emotions: ${session.selectedEmotions.length} emotions - ${reason}`);
+  
+  const success = await writeToSheetWithMerge(session.selectedEmotions, reason);
+  
+  if (success) {
     const keyboard = {
       inline_keyboard: [
         [{ text: '📝 Добавить еще одну запись', callback_data: 'add_entry' }],
@@ -527,11 +646,29 @@ async function saveEmotionEntry(chatId, reason) {
       ]
     };
 
+    let emotionsText = '';
+    session.selectedEmotions.forEach((emotionData, index) => {
+      const emoji = EMOTIONS[emotionData.emotion];
+      let level, levelEmoji;
+      if (emotionData.intensity <= 3) {
+        level = 'слабая';
+        levelEmoji = '🔵';
+      } else if (emotionData.intensity <= 7) {
+        level = 'средняя';
+        levelEmoji = '🟢';
+      } else {
+        level = 'сильная';
+        levelEmoji = '🟠';
+      }
+      
+      emotionsText += `${index + 1}. ${emoji} ${emotionData.emotion} - ${levelEmoji} ${level} (${emotionData.intensity}/10)\n`;
+    });
+
     const text = `✅ <b>Запись сохранена!</b>
 
-🎭 Эмоция: ${emoji} ${emotion}
-📊 Интенсивность: ${levelEmoji} ${level} (${intensity}/10)
-💭 Комментарий: ${reason}`;
+<b>Эмоции:</b>
+${emotionsText}
+💭 <b>Комментарий:</b> ${reason}`;
 
     await sendMessage(chatId, text, keyboard);
     userSessions.delete(chatId);
@@ -565,10 +702,8 @@ async function startServer() {
   console.log(`📊 Google Sheets ID: ${GOOGLE_SHEET_ID}`);
   console.log(`🤖 Telegram Bot Token: ${TELEGRAM_TOKEN ? 'Configured ✅' : 'Missing ❌'}`);
   
-  // Инициализируем Google Sheets
   await initializeGoogleSheets();
   
-  // Запускаем сервер
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌐 Health check: http://localhost:${PORT}/health`);
@@ -576,7 +711,6 @@ async function startServer() {
   });
 }
 
-// Запуск приложения
 startServer().catch(error => {
   console.error('❌ Failed to start server:', error);
   process.exit(1);
