@@ -177,6 +177,8 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
       }
     });
 
+    console.log('📝 Writing data:', values);
+
     // Записываем данные
     await sheetsClient.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
@@ -186,6 +188,11 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
         values: values
       }
     });
+
+    console.log('✅ Data written, waiting 2 seconds before merging...');
+
+    // ЖДЕМ 2 секунды чтобы данные точно записались
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Теперь занимаемся объединением ячеек
     if (selectedEmotions.length > 1) {
@@ -201,138 +208,67 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
   }
 }
 
-// Умное объединение ячеек
-async function smartMergeCells() {
-  try {
-    // Получаем все данные из таблицы
-    const allData = await sheetsClient.spreadsheets.values.get({
-      spreadsheetId: GOOGLE_SHEET_ID,
-      range: 'A:E',
-    });
-    
-    if (!allData.data.values) {
-      console.log('No data to merge');
-      return;
-    }
-    
-    const data = allData.data.values;
-    
-    // Находим группы записей для объединения
-    const mergeGroups = findMergeGroups(data);
-    
-    if (mergeGroups.length === 0) {
-      console.log('No groups found for merging');
-      return;
-    }
-    
-    console.log(`Found ${mergeGroups.length} groups for merging`);
-    
-    // Сначала разъединяем все ячейки в колонках A, B, E
-    try {
-      await sheetsClient.spreadsheets.batchUpdate({
-        spreadsheetId: GOOGLE_SHEET_ID,
-        resource: {
-          requests: [
-            {
-              unmergeCells: {
-                range: {
-                  sheetId: 0,
-                  startColumnIndex: 0,
-                  endColumnIndex: 1
-                }
-              }
-            },
-            {
-              unmergeCells: {
-                range: {
-                  sheetId: 0,
-                  startColumnIndex: 1,
-                  endColumnIndex: 2
-                }
-              }
-            },
-            {
-              unmergeCells: {
-                range: {
-                  sheetId: 0,
-                  startColumnIndex: 4,
-                  endColumnIndex: 5
-                }
-              }
-            }
-          ]
-        }
-      });
-      console.log('✅ All cells unmerged');
-    } catch (unmergeError) {
-      console.log('ℹ️ No cells to unmerge (normal)');
-    }
-
-    // Теперь объединяем ячейки для каждой группы
-    const mergeRequests = [];
-    
-    mergeGroups.forEach(group => {
-      const startRowIndex = group.startRow - 1; // API использует 0-based индексы
-      const endRowIndex = group.endRow; // endRow exclusive
-      
-      // Объединяем дату (колонка A)
-      mergeRequests.push({
-        mergeCells: {
-          range: {
-            sheetId: 0,
-            startRowIndex: startRowIndex,
-            endRowIndex: endRowIndex,
-            startColumnIndex: 0,
-            endColumnIndex: 1
-          },
-          mergeType: 'MERGE_ALL'
-        }
-      });
-
-      // Объединяем время (колонка B)
-      mergeRequests.push({
-        mergeCells: {
-          range: {
-            sheetId: 0,
-            startRowIndex: startRowIndex,
-            endRowIndex: endRowIndex,
-            startColumnIndex: 1,
-            endColumnIndex: 2
-          },
-          mergeType: 'MERGE_ALL'
-        }
-      });
-
-      // Объединяем комментарий (колонка E), только если он не пустой
-      if (group.comment && group.comment.trim()) {
-        mergeRequests.push({
-          mergeCells: {
-            range: {
-              sheetId: 0,
-              startRowIndex: startRowIndex,
-              endRowIndex: endRowIndex,
-              startColumnIndex: 4,
-              endColumnIndex: 5
-            },
-            mergeType: 'MERGE_ALL'
-          }
-        });
-      }
-    });
-
-    if (mergeRequests.length > 0) {
-      await sheetsClient.spreadsheets.batchUpdate({
-        spreadsheetId: GOOGLE_SHEET_ID,
-        resource: {
-          requests: mergeRequests
-        }
-      });
-      console.log(`✅ Successfully merged ${mergeRequests.length} cell ranges`);
-    }
-    
-  } catch (error) {
-    console.error('❌ Smart merge error:', error);
+// Улучшенная функция поиска групп с логированием
+function findMergeGroups(data) {
+  console.log('🔍 Analyzing data for merge groups...');
+  console.log('📊 Total rows:', data.length);
+  
+  if (data.length <= 1) {
+    console.log('❌ Not enough data for merging');
+    return [];
   }
+
+  const groups = [];
+  let currentGroup = null;
+  
+  for (let i = 1; i < data.length; i++) { // Пропускаем заголовок
+    const row = data[i];
+    console.log(`Row ${i + 1}:`, row);
+    
+    if (!row || row.length < 3) {
+      console.log(`⏭️ Skipping row ${i + 1} - insufficient data`);
+      continue;
+    }
+    
+    const [date, time, emotion, intensity, comment] = row;
+    
+    // Если у нас есть дата и время, это начало новой группы
+    if (date && time) {
+      console.log(`🆕 New group started at row ${i + 1}`);
+      
+      // Завершаем предыдущую группу
+      if (currentGroup && currentGroup.rows.length > 1) {
+        console.log(`✅ Finished group: rows ${currentGroup.startRow + 1}-${currentGroup.endRow + 1}`);
+        groups.push(currentGroup);
+      }
+      
+      // Начинаем новую группу
+      currentGroup = {
+        startRow: i,
+        endRow: i,
+        rows: [i],
+        date: date,
+        time: time,
+        comment: comment
+      };
+    } else if (currentGroup && !date && !time && emotion) {
+      // Это продолжение текущей группы
+      console.log(`➕ Adding row ${i + 1} to current group`);
+      currentGroup.endRow = i;
+      currentGroup.rows.push(i);
+    } else {
+      console.log(`⚠️ Row ${i + 1} doesn't fit any pattern`);
+    }
+  }
+  
+  // Не забываем последнюю группу
+  if (currentGroup && currentGroup.rows.length > 1) {
+    console.log(`✅ Finished last group: rows ${currentGroup.startRow + 1}-${currentGroup.endRow + 1}`);
+    groups.push(currentGroup);
+  }
+  
+  console.log(`🎯 Found ${groups.length} groups for merging`);
+  return groups;
 }
 
 // Функции для работы с Telegram API
