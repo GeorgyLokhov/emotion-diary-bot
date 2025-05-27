@@ -528,7 +528,7 @@ async function saveEmotionEntry(chatId, reason) {
 
     const text = `✅ <b>Запись сохранена!</b>
 
-🎭 Чувство: ${emoji} ${emotion}
+🎭 Эмоция: ${emoji} ${emotion}
 📊 Интенсивность: ${levelEmoji} ${level} (${intensity}/10)
 💭 Комментарий: ${reason}`;
 
