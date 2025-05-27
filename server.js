@@ -368,8 +368,7 @@ async function askForReason(chatId, messageId, emotion, intensity) {
 
 Интенсивность: ${levelEmoji} ${level} (${intensity}/10)
 
-Опиши причину или ситуацию, которая вызвала это чувство.
-Можешь писать сколько угодно - я записываю все детали:`;
+Опиши причину или ситуацию, которая вызвала это чувство`;
 
   await editMessage(chatId, messageId, text);
 }
