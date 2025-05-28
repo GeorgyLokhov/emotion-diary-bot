@@ -824,7 +824,7 @@ async function askForReason(chatId, messageId, selectedEmotions) {
 
 <b>Выбранные эмоции:</b>
 ${emotionsText}
-${sumEmoji} <b>Сумма эмоций:</b> ${emotionSum}
+<b>Сумма эмоций:</b> ${emotionSum}
 
 Опиши причину или ситуацию, которая вызвала эти чувства:`;
 
