@@ -43,8 +43,8 @@ const userSessions = new Map();
 function createSession() {
   return {
     state: STATES.NONE,
-    selectedEmotions: [], // [{emotion: string, intensity: number}]
-    currentEmotionIndex: -1, // Индекс текущей эмоции для установки интенсивности
+    selectedEmotions: [],
+    currentEmotionIndex: -1,
     previousState: null,
     messageId: null
   };
@@ -56,7 +56,6 @@ async function initializeGoogleSheets() {
   try {
     let auth;
     
-    // Пробуем Secret File сначала
     try {
       auth = new google.auth.GoogleAuth({
         keyFile: '/etc/secrets/google-credentials.json',
@@ -66,7 +65,6 @@ async function initializeGoogleSheets() {
     } catch (error) {
       console.log('Secret file not found, trying environment variable...');
       
-      // Fallback на Environment Variable
       if (process.env.GOOGLE_CREDENTIALS) {
         const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
         auth = new google.auth.GoogleAuth({
@@ -87,6 +85,8 @@ async function initializeGoogleSheets() {
   }
 }
 
+// ВАЖНО: ОПРЕДЕЛЯЕМ ВСЕ ФУНКЦИИ GOOGLE SHEETS В ПРАВИЛЬНОМ ПОРЯДКЕ
+
 // Функция для поиска групп записей, которые должны быть объединены
 function findMergeGroups(data) {
   console.log('Analyzing data for merge groups...');
@@ -100,7 +100,7 @@ function findMergeGroups(data) {
   const groups = [];
   let currentGroup = null;
   
-  for (let i = 1; i < data.length; i++) { // Пропускаем заголовок
+  for (let i = 1; i < data.length; i++) {
     const row = data[i];
     console.log(`Row ${i + 1}:`, row);
     
@@ -111,17 +111,14 @@ function findMergeGroups(data) {
     
     const [date, time, emotion, intensity, comment] = row;
     
-    // Если у нас есть дата и время, это начало новой группы
     if (date && time) {
       console.log(`New group started at row ${i + 1}`);
       
-      // Завершаем предыдущую группу
       if (currentGroup && currentGroup.rows.length > 1) {
         console.log(`Finished group: rows ${currentGroup.startRow + 1}-${currentGroup.endRow + 1}`);
         groups.push(currentGroup);
       }
       
-      // Начинаем новую группу
       currentGroup = {
         startRow: i,
         endRow: i,
@@ -131,7 +128,6 @@ function findMergeGroups(data) {
         comment: comment
       };
     } else if (currentGroup && !date && !time && emotion) {
-      // Это продолжение текущей группы
       console.log(`Adding row ${i + 1} to current group`);
       currentGroup.endRow = i;
       currentGroup.rows.push(i);
@@ -140,7 +136,6 @@ function findMergeGroups(data) {
     }
   }
   
-  // Не забываем последнюю группу
   if (currentGroup && currentGroup.rows.length > 1) {
     console.log(`Finished last group: rows ${currentGroup.startRow + 1}-${currentGroup.endRow + 1}`);
     groups.push(currentGroup);
@@ -150,12 +145,11 @@ function findMergeGroups(data) {
   return groups;
 }
 
-// Умное объединение ячеек
+// Умное объединение ячеек - ОПРЕДЕЛЯЕМ ПЕРЕД ИСПОЛЬЗОВАНИЕМ
 async function smartMergeCells() {
   try {
     console.log('Starting smart merge process...');
     
-    // Получаем все данные из таблицы
     const allData = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
       range: 'A:E',
@@ -169,7 +163,6 @@ async function smartMergeCells() {
     const data = allData.data.values;
     console.log('Retrieved data for merging, rows:', data.length);
     
-    // Находим группы записей для объединения
     const mergeGroups = findMergeGroups(data);
     
     if (mergeGroups.length === 0) {
@@ -179,7 +172,6 @@ async function smartMergeCells() {
     
     console.log(`Found ${mergeGroups.length} groups for merging`);
     
-    // Сначала разъединяем все ячейки в колонках A, B, E
     console.log('Unmerging existing cells...');
     try {
       await sheetsClient.spreadsheets.batchUpdate({
@@ -221,16 +213,14 @@ async function smartMergeCells() {
       console.log('No cells to unmerge (normal)');
     }
 
-    // Теперь объединяем ячейки для каждой группы
     const mergeRequests = [];
     
     mergeGroups.forEach((group, index) => {
-      const startRowIndex = group.startRow; // API использует 0-based индексы
-      const endRowIndex = group.endRow + 1; // endRow exclusive
+      const startRowIndex = group.startRow;
+      const endRowIndex = group.endRow + 1;
       
       console.log(`Group ${index + 1}: merging rows ${startRowIndex + 1}-${endRowIndex} (API: ${startRowIndex}-${endRowIndex})`);
       
-      // Объединяем дату (колонка A)
       mergeRequests.push({
         mergeCells: {
           range: {
@@ -244,7 +234,6 @@ async function smartMergeCells() {
         }
       });
 
-      // Объединяем время (колонка B)
       mergeRequests.push({
         mergeCells: {
           range: {
@@ -258,7 +247,6 @@ async function smartMergeCells() {
         }
       });
 
-      // Объединяем комментарий (колонка E), только если он не пустой
       if (group.comment && group.comment.trim()) {
         mergeRequests.push({
           mergeCells: {
@@ -293,7 +281,7 @@ async function smartMergeCells() {
   }
 }
 
-// Функция записи в Google Sheets с умным объединением ячеек
+// Функция записи в Google Sheets с умным объединением ячеек - ПОСЛЕ ОПРЕДЕЛЕНИЯ smartMergeCells
 async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
   try {
     const now = new Date();
@@ -310,13 +298,11 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
     
     console.log(`Saving data: Date=${dateStr}, Time=${timeStr}, Emotions=${selectedEmotions.length}`);
     
-    // Проверяем заголовки
     const headerCheck = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
       range: 'A1:E1',
     });
     
-    // Создаем заголовки если их нет
     if (!headerCheck.data.values || !headerCheck.data.values[0] || headerCheck.data.values[0][0] !== 'Дата') {
       await sheetsClient.spreadsheets.values.update({
         spreadsheetId: GOOGLE_SHEET_ID,
@@ -329,21 +315,17 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
       console.log('Headers created');
     }
 
-    // Подготавливаем данные для записи
     const values = [];
     selectedEmotions.forEach((emotionData, index) => {
       if (index === 0) {
-        // Первая строка содержит дату, время, эмоцию, интенсивность и комментарий
         values.push([dateStr, timeStr, emotionData.emotion, emotionData.intensity, reason]);
       } else {
-        // Остальные строки содержат только эмоцию и интенсивность
         values.push(['', '', emotionData.emotion, emotionData.intensity, '']);
       }
     });
 
     console.log('Writing data:', values);
 
-    // Записываем данные
     await sheetsClient.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
       range: 'A:E',
@@ -354,11 +336,8 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
     });
 
     console.log('Data written, waiting 2 seconds before merging...');
-
-    // ЖДЕМ 2 секунды чтобы данные точно записались
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Теперь занимаемся объединением ячеек
     if (selectedEmotions.length > 1) {
       await smartMergeCells();
     }
@@ -449,10 +428,7 @@ async function answerCallbackQuery(callbackQueryId) {
 app.post('/webhook', async (req, res) => {
   try {
     const update = req.body;
-    
-    // Мгновенно отвечаем Telegram
     res.status(200).json({ status: 'ok' });
-    
     console.log('Update received:', JSON.stringify(update));
     
     if (update.message) {
@@ -519,9 +495,8 @@ async function handleCallback(callbackQuery) {
     
   } else if (data === 'done_selecting_emotions') {
     if (session.selectedEmotions.length === 0) {
-      return; // Нельзя завершить без выбора эмоций
+      return;
     }
-    // Переходим к выбору интенсивности для первой эмоции
     session.currentEmotionIndex = 0;
     session.state = STATES.CHOOSING_INTENSITY_FOR_EMOTION;
     userSessions.set(chatId, session);
@@ -551,10 +526,8 @@ async function toggleEmotion(chatId, messageId, session, emotion) {
   const existingIndex = session.selectedEmotions.findIndex(e => e.emotion === emotion);
   
   if (existingIndex >= 0) {
-    // Убираем эмоцию
     session.selectedEmotions.splice(existingIndex, 1);
   } else {
-    // Добавляем эмоцию (без интенсивности пока)
     session.selectedEmotions.push({ emotion, intensity: null });
   }
   
@@ -564,20 +537,16 @@ async function toggleEmotion(chatId, messageId, session, emotion) {
 
 // Установка интенсивности для текущей эмоции
 async function setIntensityForCurrentEmotion(chatId, messageId, session, intensity) {
-  // Устанавливаем интенсивность для текущей эмоции
   if (session.currentEmotionIndex >= 0 && session.currentEmotionIndex < session.selectedEmotions.length) {
     session.selectedEmotions[session.currentEmotionIndex].intensity = intensity;
   }
   
-  // Переходим к следующей эмоции
   session.currentEmotionIndex++;
   
   if (session.currentEmotionIndex < session.selectedEmotions.length) {
-    // Есть еще эмоции без интенсивности
     userSessions.set(chatId, session);
     await showIntensityKeyboard(chatId, messageId, session);
   } else {
-    // Все интенсивности установлены, переходим к вводу комментария
     session.state = STATES.ENTERING_REASON;
     session.currentEmotionIndex = -1;
     userSessions.set(chatId, session);
@@ -590,17 +559,13 @@ async function handleBack(chatId, messageId, session) {
   switch (session.state) {
     case STATES.CHOOSING_INTENSITY_FOR_EMOTION:
       if (session.currentEmotionIndex > 0) {
-        // Возврат к предыдущей эмоции
         session.currentEmotionIndex--;
-        // Очищаем интенсивность текущей эмоции
         session.selectedEmotions[session.currentEmotionIndex].intensity = null;
         userSessions.set(chatId, session);
         await showIntensityKeyboard(chatId, messageId, session);
       } else {
-        // Возврат к выбору эмоций
         session.state = STATES.CHOOSING_EMOTIONS;
         session.currentEmotionIndex = -1;
-        // Очищаем все интенсивности
         session.selectedEmotions.forEach(e => e.intensity = null);
         userSessions.set(chatId, session);
         await showEmotionKeyboard(chatId, messageId);
@@ -608,7 +573,6 @@ async function handleBack(chatId, messageId, session) {
       break;
       
     case STATES.ENTERING_REASON:
-      // Возврат к выбору интенсивности (для последней эмоции)
       if (session.selectedEmotions.length > 0) {
         session.selectedEmotions.forEach(e => e.intensity = null);
         session.currentEmotionIndex = session.selectedEmotions.length - 1;
@@ -670,11 +634,9 @@ async function showEmotionKeyboard(chatId, messageId) {
   const emotions = Object.keys(EMOTIONS);
   const keyboard = { inline_keyboard: [] };
 
-  // Добавляем эмоции по 2 в ряд
   for (let i = 0; i < emotions.length; i += 2) {
     const row = [];
     
-    // Первая эмоция в ряду
     const emotion1 = emotions[i];
     const emoji1 = EMOTIONS[emotion1];
     const isSelected1 = session.selectedEmotions.some(e => e.emotion === emotion1);
@@ -687,7 +649,6 @@ async function showEmotionKeyboard(chatId, messageId) {
       callback_data: `emotion_${emotion1}`
     });
     
-    // Вторая эмоция в ряду (если есть)
     if (i + 1 < emotions.length) {
       const emotion2 = emotions[i + 1];
       const emoji2 = EMOTIONS[emotion2];
@@ -705,7 +666,6 @@ async function showEmotionKeyboard(chatId, messageId) {
     keyboard.inline_keyboard.push(row);
   }
 
-  // Добавляем кнопки управления
   const controlButtons = [];
   if (session.selectedEmotions.length > 0) {
     controlButtons.push({ text: '✅ Продолжить', callback_data: 'done_selecting_emotions' });
