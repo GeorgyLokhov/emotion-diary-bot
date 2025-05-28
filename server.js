@@ -39,6 +39,27 @@ const EMOTIONS = {
   'отвращение': '🤬'
 };
 
+// Коэффициенты эмоций для подсчёта суммы
+const EMOTION_COEFFICIENTS = {
+  'радость': 8,
+  'уверенность': 6,
+  'интерес': 6,
+  'приятная усталость': 5,
+  'удовлетворение': 4,
+  'напряжённый фокус': 2,
+  'спокойствие': 2,
+  'волнение': 2,
+  'расфокус': -1,
+  'апатия/безразличие': -2,
+  'усталость': -2,
+  'смятение/растерянность': -3,
+  'раздражение': -4,
+  'тревога': -4,
+  'стыд/вина': -4,
+  'дизмораль/подавленность': -5,
+  'отвращение': -8
+};
+
 // Временное хранилище пользовательских сессий
 const userSessions = new Map();
 
@@ -51,6 +72,14 @@ function createSession() {
     previousState: null,
     messageId: null
   };
+}
+
+// Функция подсчёта суммы эмоций
+function calculateEmotionSum(selectedEmotions) {
+  return selectedEmotions.reduce((sum, emotionData) => {
+    const coefficient = EMOTION_COEFFICIENTS[emotionData.emotion] || 0;
+    return sum + (coefficient * emotionData.intensity);
+  }, 0);
 }
 
 // Инициализация Google Sheets API
@@ -88,8 +117,6 @@ async function initializeGoogleSheets() {
   }
 }
 
-// ВАЖНО: ОПРЕДЕЛЯЕМ ВСЕ ФУНКЦИИ GOOGLE SHEETS В ПРАВИЛЬНОМ ПОРЯДКЕ
-
 // Функция для поиска групп записей, которые должны быть объединены
 function findMergeGroups(data) {
   console.log('Analyzing data for merge groups...');
@@ -112,7 +139,7 @@ function findMergeGroups(data) {
       continue;
     }
     
-    const [date, time, emotion, intensity, comment] = row;
+    const [date, time, emotion, intensity, comment, emotionSum] = row;
     
     if (date && time) {
       console.log(`New group started at row ${i + 1}`);
@@ -128,7 +155,8 @@ function findMergeGroups(data) {
         rows: [i],
         date: date,
         time: time,
-        comment: comment
+        comment: comment,
+        emotionSum: emotionSum
       };
     } else if (currentGroup && !date && !time && emotion) {
       console.log(`Adding row ${i + 1} to current group`);
@@ -148,14 +176,14 @@ function findMergeGroups(data) {
   return groups;
 }
 
-// Умное объединение ячеек - ОПРЕДЕЛЯЕМ ПЕРЕД ИСПОЛЬЗОВАНИЕМ
+// Умное объединение ячеек
 async function smartMergeCells() {
   try {
     console.log('Starting smart merge process...');
     
     const allData = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: 'A:E',
+      range: 'A:F',
     });
     
     if (!allData.data.values) {
@@ -207,6 +235,15 @@ async function smartMergeCells() {
                   endColumnIndex: 5
                 }
               }
+            },
+            {
+              unmergeCells: {
+                range: {
+                  sheetId: 0,
+                  startColumnIndex: 5,
+                  endColumnIndex: 6
+                }
+              }
             }
           ]
         }
@@ -224,6 +261,7 @@ async function smartMergeCells() {
       
       console.log(`Group ${index + 1}: merging rows ${startRowIndex + 1}-${endRowIndex} (API: ${startRowIndex}-${endRowIndex})`);
       
+      // Merge date column
       mergeRequests.push({
         mergeCells: {
           range: {
@@ -237,6 +275,7 @@ async function smartMergeCells() {
         }
       });
 
+      // Merge time column
       mergeRequests.push({
         mergeCells: {
           range: {
@@ -250,6 +289,7 @@ async function smartMergeCells() {
         }
       });
 
+      // Merge comment column if has comment
       if (group.comment && group.comment.trim()) {
         mergeRequests.push({
           mergeCells: {
@@ -264,6 +304,20 @@ async function smartMergeCells() {
           }
         });
       }
+
+      // Merge emotion sum column
+      mergeRequests.push({
+        mergeCells: {
+          range: {
+            sheetId: 0,
+            startRowIndex: startRowIndex,
+            endRowIndex: endRowIndex,
+            startColumnIndex: 5,
+            endColumnIndex: 6
+          },
+          mergeType: 'MERGE_ALL'
+        }
+      });
     });
 
     if (mergeRequests.length > 0) {
@@ -284,7 +338,7 @@ async function smartMergeCells() {
   }
 }
 
-// Функция записи в Google Sheets с умным объединением ячеек - ПОСЛЕ ОПРЕДЕЛЕНИЯ smartMergeCells
+// Функция записи в Google Sheets с умным объединением ячеек
 async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
   try {
     const now = new Date();
@@ -298,21 +352,22 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
     });
     
     const [dateStr, timeStr] = currentDateTime.split(', ');
+    const emotionSum = calculateEmotionSum(selectedEmotions);
     
-    console.log(`Saving data: Date=${dateStr}, Time=${timeStr}, Emotions=${selectedEmotions.length}`);
+    console.log(`Saving data: Date=${dateStr}, Time=${timeStr}, Emotions=${selectedEmotions.length}, Sum=${emotionSum}`);
     
     const headerCheck = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: 'A1:E1',
+      range: 'A1:F1',
     });
     
     if (!headerCheck.data.values || !headerCheck.data.values[0] || headerCheck.data.values[0][0] !== 'Дата') {
       await sheetsClient.spreadsheets.values.update({
         spreadsheetId: GOOGLE_SHEET_ID,
-        range: 'A1:E1',
+        range: 'A1:F1',
         valueInputOption: 'RAW',
         resource: {
-          values: [['Дата', 'Время', 'Что я чувствую?', 'Интенсивность', 'Почему я это чувствую?']]
+          values: [['Дата', 'Время', 'Что я чувствую?', 'Интенсивность', 'Почему я это чувствую?', 'Сумма эмоций']]
         }
       });
       console.log('Headers created');
@@ -321,9 +376,9 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
     const values = [];
     selectedEmotions.forEach((emotionData, index) => {
       if (index === 0) {
-        values.push([dateStr, timeStr, emotionData.emotion, emotionData.intensity, reason]);
+        values.push([dateStr, timeStr, emotionData.emotion, emotionData.intensity, reason, emotionSum]);
       } else {
-        values.push(['', '', emotionData.emotion, emotionData.intensity, '']);
+        values.push(['', '', emotionData.emotion, emotionData.intensity, '', '']);
       }
     });
 
@@ -331,7 +386,7 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
 
     await sheetsClient.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: 'A:E',
+      range: 'A:F',
       valueInputOption: 'RAW',
       resource: {
         values: values
@@ -345,7 +400,7 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
       await smartMergeCells();
     }
     
-    console.log(`Data written to Google Sheets: ${selectedEmotions.length} emotions`);
+    console.log(`Data written to Google Sheets: ${selectedEmotions.length} emotions, sum: ${emotionSum}`);
     return true;
     
   } catch (error) {
@@ -762,10 +817,15 @@ async function askForReason(chatId, messageId, selectedEmotions) {
     emotionsText += `${index + 1}. ${emoji} ${emotionData.emotion} - ${levelEmoji} ${level} (${emotionData.intensity}/10)\n`;
   });
 
+  const emotionSum = calculateEmotionSum(selectedEmotions);
+  const sumEmoji = emotionSum > 0 ? '😊' : emotionSum < 0 ? '😞' : '😐';
+
   const text = `💭 <b>Почему ты это чувствуешь?</b>
 
 <b>Выбранные эмоции:</b>
 ${emotionsText}
+${sumEmoji} <b>Сумма эмоций:</b> ${emotionSum}
+
 Опиши причину или ситуацию, которая вызвала эти чувства:`;
 
   await editMessage(chatId, messageId, text, keyboard);
@@ -809,10 +869,15 @@ async function saveEmotionEntry(chatId, reason) {
       emotionsText += `${index + 1}. ${emoji} ${emotionData.emotion} - ${levelEmoji} ${level} (${emotionData.intensity}/10)\n`;
     });
 
+    const emotionSum = calculateEmotionSum(session.selectedEmotions);
+    const sumEmoji = emotionSum > 0 ? '😊' : emotionSum < 0 ? '😞' : '😐';
+
     const text = `✅ <b>Запись сохранена!</b>
 
 <b>Эмоции:</b>
 ${emotionsText}
+${sumEmoji} <b>Сумма эмоций:</b> ${emotionSum}
+
 💭 <b>Комментарий:</b> ${reason}`;
 
     await sendMessage(chatId, text, keyboard);
