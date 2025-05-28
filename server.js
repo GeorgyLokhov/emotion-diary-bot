@@ -818,7 +818,7 @@ async function askForReason(chatId, messageId, selectedEmotions) {
   });
 
   const emotionSum = calculateEmotionSum(selectedEmotions);
-  const sumEmoji = emotionSum > 0 ? '😊' : emotionSum < 0 ? '😞' : '😐';
+  const sumEmoji = emotionSum > 0 ? '' : emotionSum < 0 ? '😞' : '😐';
 
   const text = `💭 <b>Почему ты это чувствуешь?</b>
 
@@ -870,7 +870,6 @@ async function saveEmotionEntry(chatId, reason) {
     });
 
     const emotionSum = calculateEmotionSum(session.selectedEmotions);
-    const sumEmoji = emotionSum > 0 ? '😊' : emotionSum < 0 ? '😞' : '😐';
 
     const text = `✅ <b>Запись сохранена!</b>
 
