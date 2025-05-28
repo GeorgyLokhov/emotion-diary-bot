@@ -818,7 +818,6 @@ async function askForReason(chatId, messageId, selectedEmotions) {
   });
 
   const emotionSum = calculateEmotionSum(selectedEmotions);
-  const sumEmoji = emotionSum > 0 ? '' : emotionSum < 0 ? '😞' : '😐';
 
   const text = `💭 <b>Почему ты это чувствуешь?</b>
 
