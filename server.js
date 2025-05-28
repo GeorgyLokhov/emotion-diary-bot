@@ -851,33 +851,7 @@ async function saveEmotionEntry(chatId, reason) {
       ]
     };
 
-    let emotionsText = '';
-    session.selectedEmotions.forEach((emotionData, index) => {
-      const emoji = EMOTIONS[emotionData.emotion];
-      let level, levelEmoji;
-      if (emotionData.intensity <= 3) {
-        level = 'слабая';
-        levelEmoji = '🔵';
-      } else if (emotionData.intensity <= 7) {
-        level = 'средняя';
-        levelEmoji = '🟢';
-      } else {
-        level = 'сильная';
-        levelEmoji = '🟠';
-      }
-      
-      emotionsText += `${index + 1}. ${emoji} ${emotionData.emotion} - ${levelEmoji} ${level} (${emotionData.intensity}/10)\n`;
-    });
-
-    const emotionSum = calculateEmotionSum(session.selectedEmotions);
-
-    const text = `✅ <b>Запись сохранена!</b>
-
-<b>Эмоции:</b>
-${emotionsText}
-${sumEmoji} <b>Сумма эмоций:</b> ${emotionSum}
-
-💭 <b>Комментарий:</b> ${reason}`;
+    const text = `✅ <b>Запись сохранена!</b>`;
 
     await sendMessage(chatId, text, keyboard);
     userSessions.delete(chatId);
