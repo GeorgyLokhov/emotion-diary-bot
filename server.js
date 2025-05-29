@@ -346,6 +346,32 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
     }
     
     console.log(`Data written to Google Sheets: ${selectedEmotions.length} emotions`);
+    // Вызываем Apps Script для пересчета
+try {
+  const appsScriptUrl = 'https://script.google.com/macros/s/AKfycbxHOXDH7RiUNzq3gV5PyTFBmcvXAbpic7Rt7HYxWuuKT_sf3pMiqXxkT0rTHOBtXjYD-g/exec';
+  
+  const response = await fetch(appsScriptUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      action: 'recalculate',
+      timestamp: new Date().toISOString()
+    })
+  });
+  
+  if (response.ok) {
+    console.log('✅ Apps Script вызван успешно');
+  } else {
+    console.log('⚠️ Apps Script ответил с ошибкой:', response.status);
+  }
+} catch (error) {
+  console.log('❌ Ошибка вызова Apps Script:', error.message);
+}
+
+console.log(`Data written to Google Sheets: ${selectedEmotions.length} emotions`);
+return true;
     return true;
     
   } catch (error) {
