@@ -310,7 +310,7 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
       await sheetsClient.spreadsheets.values.update({
         spreadsheetId: GOOGLE_SHEET_ID,
         range: 'A1:E1',
-        valueInputOption: 'RAW',
+        valueInputOption: 'USER_ENTERED',
         resource: {
           values: [['Дата', 'Время', 'Что я чувствую?', 'Интенсивность', 'Почему я это чувствую?']]
         }
@@ -332,7 +332,7 @@ async function writeToSheetWithSmartMerge(selectedEmotions, reason) {
     await sheetsClient.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
       range: 'A:E',
-      valueInputOption: 'RAW',
+      valueInputOption: 'USER_ENTERED',
       resource: {
         values: values
       }
